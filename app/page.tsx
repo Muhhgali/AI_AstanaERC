@@ -21,26 +21,49 @@ export default function Home() {
       content: input,
     };
 
-    const updated = [...messages, userMessage];
+    setMessages((prev) => [...prev, userMessage]);
 
-    setMessages(updated);
+    const currentInput = input;
+
     setInput("");
     setLoading(true);
 
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: updated }),
-    });
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
 
-    const data = await res.json();
+        // ✅ ПРАВИЛЬНО ОТПРАВЛЯЕМ MESSAGE
+        body: JSON.stringify({
+          message: currentInput,
+        }),
+      });
 
-    const botMessage = {
-      role: "assistant",
-      content: data.message,
-    };
+      const data = await res.json();
 
-    setMessages((prev) => [...prev, botMessage]);
+      const botMessage = {
+        role: "assistant",
+
+        // ✅ API ВОЗВРАЩАЕТ answer
+        content: data.answer || "Нет ответа",
+      };
+
+      setMessages((prev) => [...prev, botMessage]);
+
+    } catch (error) {
+      console.error("CHAT ERROR:", error);
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: "Ошибка сервера",
+        },
+      ]);
+    }
+
     setLoading(false);
   };
 
@@ -79,12 +102,17 @@ export default function Home() {
 
       {/* INPUT */}
       <div className="p-4 border-t border-gray-800 flex gap-2">
+
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Напиши вопрос..."
           className="flex-1 p-3 rounded-xl bg-gray-900 border border-gray-700 text-white outline-none"
-          onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              sendMessage();
+            }
+          }}
         />
 
         <button
@@ -93,6 +121,7 @@ export default function Home() {
         >
           Send
         </button>
+
       </div>
     </div>
   );
