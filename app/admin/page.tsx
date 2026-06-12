@@ -223,6 +223,14 @@ export default function AdminPage() {
       } & T;
 
       if (!res.ok) {
+        if (res.status === 401) {
+          await supabase.auth.signOut();
+          router.push("/login?reason=session");
+          throw new Error(
+            "Сессия не прошла проверку. Войди заново или проверь Supabase env-переменные на Vercel."
+          );
+        }
+
         throw new Error(data.message ?? "Не удалось выполнить запрос");
       }
 

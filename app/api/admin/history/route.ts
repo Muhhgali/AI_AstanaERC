@@ -22,13 +22,18 @@ let authClient: ReturnType<typeof createClient<any>> | null = null;
 let adminClient: ReturnType<typeof createClient<any>> | null = null;
 
 function getAuthClient() {
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
+  const supabaseUrl =
+    process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey =
+    process.env.SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error("Missing SUPABASE_URL or SUPABASE_ANON_KEY");
   }
 
   authClient ??= createClient<any>(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_ANON_KEY
+    supabaseUrl,
+    supabaseAnonKey
   );
 
   return authClient;
@@ -79,7 +84,13 @@ export async function GET(req: Request) {
   const user = await requireUser(req);
 
   if (!user) {
-    return Response.json({ message: "Unauthorized" }, { status: 401 });
+    return Response.json(
+      {
+        message:
+          "Сессия администратора не прошла проверку. Войди заново и проверь Supabase env-переменные на Vercel.",
+      },
+      { status: 401 }
+    );
   }
 
   const url = new URL(req.url);

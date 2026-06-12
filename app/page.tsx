@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   ArrowUp,
   Bot,
@@ -7,6 +8,7 @@ import {
   FileText,
   RefreshCw,
   Search,
+  Settings,
   ShieldCheck,
   Sparkles,
   ThumbsDown,
@@ -268,13 +270,24 @@ export default function Home() {
             </div>
           </div>
 
-          <button
-            onClick={clearChat}
-            className="flex h-10 items-center gap-2 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50"
-          >
-            <RefreshCw size={16} />
-            <span className="hidden sm:inline">Новый чат</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/admin"
+              className="flex h-10 w-10 items-center justify-center rounded-md border border-neutral-300 text-neutral-700 hover:bg-neutral-50"
+              title="Панель управления"
+              aria-label="Панель управления"
+            >
+              <Settings size={17} />
+            </Link>
+
+            <button
+              onClick={clearChat}
+              className="flex h-10 items-center gap-2 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50"
+            >
+              <RefreshCw size={16} />
+              <span className="hidden sm:inline">Новый чат</span>
+            </button>
+          </div>
         </header>
 
         <div className="grid flex-1 gap-4 lg:grid-cols-[320px_1fr]">

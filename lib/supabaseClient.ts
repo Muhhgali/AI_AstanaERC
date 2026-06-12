@@ -8,6 +8,13 @@ const supabaseAnonKey =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
   process.env.SUPABASE_ANON_KEY;
 
+export const isSupabaseConfigured = Boolean(
+  supabaseUrl &&
+    supabaseAnonKey &&
+    !supabaseUrl.includes("missing-supabase-url") &&
+    supabaseAnonKey !== "missing-supabase-anon-key"
+);
+
 export const supabase = createClient(
   supabaseUrl ?? "https://missing-supabase-url.supabase.co",
   supabaseAnonKey ?? "missing-supabase-anon-key"
