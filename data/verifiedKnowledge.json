@@ -1,0 +1,26 @@
+[
+  {
+    "title": "Оплата через Kaspi",
+    "category": "payments",
+    "content": "ЕПД можно оплатить через Kaspi Bank.",
+    "verified": true,
+    "priority": 100,
+    "source": "manual"
+  },
+  {
+    "title": "Передача показаний электроэнергии",
+    "category": "meters",
+    "content": "Показания электроэнергии можно передать через Telegram-бот astrekbot, сайт etolem.kz и call-центр.",
+    "verified": true,
+    "priority": 100,
+    "source": "manual"
+  },
+  {
+    "title": "Точный адрес офиса",
+    "category": "support",
+    "content": "В базе знаний пока нет проверенного точного адреса офиса Астана-ЕРЦ. Пользователю нужно рекомендовать уточнить адрес на официальном сайте или в поддержке компании.",
+    "verified": true,
+    "priority": 100,
+    "source": "manual"
+  }
+]

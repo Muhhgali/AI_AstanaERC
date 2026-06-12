@@ -1,41 +1,195 @@
 import { supabase } from "@/lib/supabaseClient";
 
-function cosineSimilarity(a: number[], b: number[]) {
-  let dot = 0,
-    normA = 0,
-    normB = 0;
+type KnowledgeRow = {
+  id?: string;
+  title?: string | null;
+  category?: string | null;
+  content?: string | null;
+  embedding?: number[] | string | null;
+  priority?: number | null;
+  verified?: boolean | null;
+  source?: string | null;
+};
 
-  for (let i = 0; i < a.length; i++) {
+export type KnowledgeSearchResult = KnowledgeRow & {
+  embedding: number[];
+  similarity: number;
+  score: number;
+};
+
+const DEBUG_RETRIEVAL =
+  process.env.DEBUG_RETRIEVAL === "true";
+
+function cosineSimilarity(a: number[], b: number[]) {
+  if (!a?.length || !b?.length) {
+    return 0;
+  }
+
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+
+  const len = Math.min(a.length, b.length);
+
+  for (let i = 0; i < len; i++) {
     dot += a[i] * b[i];
     normA += a[i] * a[i];
     normB += b[i] * b[i];
   }
 
+  if (normA === 0 || normB === 0) {
+    return 0;
+  }
+
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
-export async function searchFaq(queryEmbedding: number[]) {
-  const { data, error } = await supabase
-    .from("faq")
-    .select("*");
-
-  if (error) {
-    console.error("SUPABASE ERROR:", error);
-    return [];
+function parseEmbedding(
+  embedding: KnowledgeRow["embedding"]
+) {
+  if (Array.isArray(embedding)) {
+    return embedding;
   }
 
-  if (!data) return [];
+  if (typeof embedding !== "string") {
+    return null;
+  }
 
-  const results = data
-    .filter((faq) => faq.embedding)
-    .map((faq) => ({
-      ...faq,
-      score: cosineSimilarity(queryEmbedding, faq.embedding),
-    }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 3);
+  try {
+    const parsed = JSON.parse(embedding);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
 
-  console.log("TOP RESULT:", results[0]);
+function tokenize(text: string) {
+  return text
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((token) => token.length > 2);
+}
 
-  return results;
+function textOverlapScore(
+  queryText: string,
+  item: KnowledgeRow
+) {
+  const queryTokens = new Set(tokenize(queryText));
+
+  if (queryTokens.size === 0) {
+    return 0;
+  }
+
+  const itemTokens = new Set(
+    tokenize(
+      `${item.title ?? ""} ${item.category ?? ""} ${
+        item.content ?? ""
+      }`
+    )
+  );
+
+  let matches = 0;
+
+  for (const token of queryTokens) {
+    if (itemTokens.has(token)) {
+      matches++;
+    }
+  }
+
+  return matches / queryTokens.size;
+}
+
+function priorityBoost(item: KnowledgeRow) {
+  const priority =
+    typeof item.priority === "number" ? item.priority : 0;
+  const normalizedPriority = Math.min(
+    Math.max(priority, 0),
+    100
+  );
+
+  return normalizedPriority / 1000 + (item.verified ? 0.08 : 0);
+}
+
+export async function searchKnowledge(
+  queryEmbedding: number[],
+  queryText = ""
+) {
+  try {
+    const { data, error } = await supabase
+      .from("knowledge")
+      .select("*");
+
+    if (error) {
+      console.error("SUPABASE ERROR:", error);
+      return [];
+    }
+
+    if (!data || data.length === 0) {
+      if (DEBUG_RETRIEVAL) {
+        console.log("KNOWLEDGE TABLE EMPTY");
+      }
+      return [];
+    }
+
+    const valid = (data as KnowledgeRow[])
+      .map((item) => ({
+        ...item,
+        embedding: parseEmbedding(item.embedding),
+      }))
+      .filter(
+        (
+          item
+        ): item is KnowledgeRow & { embedding: number[] } =>
+          Array.isArray(item.embedding) &&
+          item.embedding.length > 0 &&
+          Boolean(item.content)
+      );
+
+    const scored: KnowledgeSearchResult[] = valid.map(
+      (item) => {
+        const similarity = cosineSimilarity(
+          queryEmbedding,
+          item.embedding
+        );
+        const overlap = queryText
+          ? textOverlapScore(queryText, item)
+          : 0;
+
+        return {
+          ...item,
+          similarity,
+          score:
+            similarity +
+            overlap * 0.05 +
+            priorityBoost(item),
+        };
+      }
+    );
+
+    const sorted = scored.sort(
+      (a, b) => b.score - a.score
+    );
+
+    if (DEBUG_RETRIEVAL) {
+      console.log(
+        "TOP RESULTS:",
+        sorted.slice(0, 5).map((x) => ({
+          title: x.title,
+          similarity: Number(x.similarity.toFixed(4)),
+          score: Number(x.score.toFixed(4)),
+          priority: x.priority ?? 0,
+          verified: Boolean(x.verified),
+        }))
+      );
+    }
+
+    return sorted.slice(0, 5);
+  } catch (err) {
+    console.error(
+      "SEARCH KNOWLEDGE ERROR:",
+      err
+    );
+
+    return [];
+  }
 }

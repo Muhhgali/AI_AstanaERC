@@ -6,15 +6,21 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "knowledge:upsert": "tsx scripts/upsertKnowledge.ts",
+    "knowledge:upsert:verified": "tsx scripts/upsertKnowledge.ts data/verifiedKnowledge.json",
+    "knowledge:compact": "tsx scripts/compactKnowledge.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
     "dotenv": "^17.4.2",
+    "dotenv-cli": "^11.0.0",
+    "lucide-react": "^1.17.0",
     "next": "16.2.6",
     "openai": "^6.39.0",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "tsx": "^4.22.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

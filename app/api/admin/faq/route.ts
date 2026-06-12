@@ -37,9 +37,12 @@ export async function POST(req: Request) {
     }
 
     return Response.json({ ok: true });
-  } catch (e: any) {
+  } catch (e: unknown) {
+    const message =
+      e instanceof Error ? e.message : "Unknown error";
+
     return Response.json(
-      { error: e.message },
+      { error: message },
       { status: 500 }
     );
   }
