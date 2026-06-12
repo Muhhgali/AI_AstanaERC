@@ -176,17 +176,22 @@ function feedbackLabel(feedback: HistoryMessage["feedback"]) {
 }
 
 export default function AdminPage() {
-  const [activeTab, setActiveTab] = useState<"knowledge" | "history">(
-    "knowledge"
-  );
+  const [activeTab, setActiveTab] = useState<
+    "knowledge" | "history" | "documents"
+  >("knowledge");
   const [items, setItems] = useState<KnowledgeItem[]>([]);
   const [history, setHistory] = useState<HistoryConversation[]>([]);
   const [form, setForm] = useState<KnowledgeForm>(EMPTY_FORM);
   const [query, setQuery] = useState("");
   const [historyQuery, setHistoryQuery] = useState("");
+  const [documentFile, setDocumentFile] = useState<File | null>(null);
+  const [documentNote, setDocumentNote] = useState("");
+  const [documentAnalysis, setDocumentAnalysis] = useState("");
+  const [documentName, setDocumentName] = useState("");
   const [activeCategory, setActiveCategory] = useState("all");
   const [loading, setLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [documentLoading, setDocumentLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -458,6 +463,79 @@ export default function AdminPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  const analyzeDocument = async () => {
+    if (!documentFile) {
+      setError("Загрузи PDF-файл для анализа.");
+      return;
+    }
+
+    const token = await getAccessToken();
+
+    if (!token) {
+      router.push("/login");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", documentFile);
+    formData.append("note", documentNote);
+
+    setDocumentLoading(true);
+    setDocumentAnalysis("");
+    setDocumentName("");
+    setError("");
+
+    try {
+      const res = await fetch("/api/admin/documents/analyze", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      const data = (await res.json().catch(() => ({}))) as {
+        analysis?: string;
+        fileName?: string;
+        message?: string;
+      };
+
+      if (!res.ok) {
+        if (res.status === 401) {
+          await supabase.auth.signOut();
+          router.push("/login?reason=session");
+          throw new Error("Сессия не прошла проверку. Войди заново.");
+        }
+
+        throw new Error(data.message ?? "Не удалось проанализировать PDF");
+      }
+
+      setDocumentAnalysis(data.analysis ?? "");
+      setDocumentName(data.fileName ?? documentFile.name);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Не удалось проанализировать PDF";
+      setError(message);
+    } finally {
+      setDocumentLoading(false);
+    }
+  };
+
+  const createKnowledgeFromDocument = () => {
+    setForm({
+      ...EMPTY_FORM,
+      title: documentName
+        ? `Черновик из PDF: ${documentName}`.slice(0, 90)
+        : "Черновик из PDF",
+      content: documentAnalysis,
+      source: "pdf-analysis",
+      verified: false,
+      priority: 70,
+    });
+    setActiveTab("knowledge");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   const logout = async () => {
     await supabase.auth.signOut();
     router.push("/login");
@@ -512,6 +590,16 @@ export default function AdminPage() {
             }`}
           >
             История вопросов
+          </button>
+          <button
+            onClick={() => setActiveTab("documents")}
+            className={`h-10 rounded-md px-4 text-sm font-semibold ${
+              activeTab === "documents"
+                ? "bg-blue-600 text-white"
+                : "text-neutral-600 hover:bg-neutral-50"
+            }`}
+          >
+            PDF-анализ
           </button>
         </div>
 
@@ -834,7 +922,7 @@ export default function AdminPage() {
               </section>
             </div>
           </>
-        ) : (
+        ) : activeTab === "history" ? (
           <>
             <section className="mb-5 grid gap-3 md:grid-cols-3">
               <div className="rounded-lg border border-neutral-200 bg-white p-4">
@@ -971,6 +1059,106 @@ export default function AdminPage() {
                 </div>
               )}
             </section>
+          </>
+        ) : (
+          <>
+            <section className="mb-5 grid gap-3 md:grid-cols-3">
+              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+                <div className="text-sm text-neutral-500">Файл</div>
+                <div className="mt-2 text-2xl font-semibold">
+                  {documentFile ? "PDF выбран" : "Нет файла"}
+                </div>
+              </div>
+              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+                <div className="text-sm text-neutral-500">Статус</div>
+                <div className="mt-2 text-2xl font-semibold">
+                  {documentLoading ? "Анализирую" : "Готов"}
+                </div>
+              </div>
+              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+                <div className="text-sm text-neutral-500">Результат</div>
+                <div className="mt-2 text-2xl font-semibold">
+                  {documentAnalysis ? "Есть отчет" : "Пока пусто"}
+                </div>
+              </div>
+            </section>
+
+            <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
+              <section className="h-fit rounded-lg border border-neutral-200 bg-white p-5">
+                <h2 className="font-semibold">Загрузка PDF</h2>
+                <p className="mt-1 text-sm leading-5 text-neutral-500">
+                  Загрузи документ, инструкцию или регламент. ИИ выделит факты,
+                  спорные места и черновики записей для базы знаний.
+                </p>
+
+                <label className="mt-5 block">
+                  <span className="mb-1 block text-sm font-medium text-neutral-700">
+                    PDF-файл
+                  </span>
+                  <input
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    onChange={(e) => {
+                      setDocumentFile(e.target.files?.[0] ?? null);
+                      setDocumentAnalysis("");
+                      setDocumentName("");
+                    }}
+                    className="block w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-blue-700"
+                  />
+                </label>
+
+                <label className="mt-4 block">
+                  <span className="mb-1 block text-sm font-medium text-neutral-700">
+                    Что проверить
+                  </span>
+                  <textarea
+                    value={documentNote}
+                    onChange={(e) => setDocumentNote(e.target.value)}
+                    className="min-h-28 w-full resize-y rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm leading-6 outline-none focus:border-blue-600"
+                    placeholder="Например: проверь контакты, сроки передачи показаний, ошибки в формулировках."
+                  />
+                </label>
+
+                <button
+                  onClick={() => void analyzeDocument()}
+                  disabled={!documentFile || documentLoading}
+                  className="mt-4 h-11 w-full rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                >
+                  {documentLoading ? "Анализирую PDF..." : "Проанализировать"}
+                </button>
+
+                {documentAnalysis && (
+                  <button
+                    onClick={createKnowledgeFromDocument}
+                    className="mt-2 h-11 w-full rounded-md border border-neutral-300 bg-white px-4 text-sm font-semibold hover:bg-neutral-50"
+                  >
+                    Создать черновик knowledge
+                  </button>
+                )}
+              </section>
+
+              <section className="rounded-lg border border-neutral-200 bg-white">
+                <div className="border-b border-neutral-200 p-4">
+                  <h2 className="font-semibold">Отчет ИИ</h2>
+                  <p className="mt-1 text-sm text-neutral-500">
+                    {documentName
+                      ? `Документ: ${documentName}`
+                      : "После анализа здесь появятся факты, риски и черновики."}
+                  </p>
+                </div>
+
+                {documentAnalysis ? (
+                  <div className="whitespace-pre-wrap p-4 text-sm leading-6 text-neutral-700">
+                    {documentAnalysis}
+                  </div>
+                ) : (
+                  <div className="p-4 text-sm leading-6 text-neutral-500">
+                    Пока отчет пустой. Выбери PDF слева и нажми
+                    “Проанализировать”.
+                  </div>
+                )}
+              </section>
+            </div>
           </>
         )}
       </div>

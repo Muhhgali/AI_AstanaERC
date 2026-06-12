@@ -6,6 +6,8 @@ import {
   Bot,
   CheckCircle2,
   FileText,
+  Mic,
+  MicOff,
   RefreshCw,
   Search,
   Settings,
@@ -31,6 +33,38 @@ type ChatResponse = {
   source?: string;
   conversationId?: string;
   messageId?: string;
+};
+
+type SpeechRecognitionResult = {
+  readonly isFinal: boolean;
+  readonly [index: number]: {
+    readonly transcript: string;
+  };
+};
+
+type SpeechRecognitionEvent = Event & {
+  readonly results: {
+    readonly length: number;
+    readonly [index: number]: SpeechRecognitionResult;
+  };
+};
+
+type SpeechRecognitionInstance = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance;
+
+type SpeechWindow = Window & {
+  SpeechRecognition?: SpeechRecognitionConstructor;
+  webkitSpeechRecognition?: SpeechRecognitionConstructor;
 };
 
 const STORAGE_MESSAGES = "astana_erc_chat_messages";
@@ -76,9 +110,12 @@ export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [storageReady, setStorageReady] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
 
   const hasMessages = messages.length > 0;
 
@@ -144,6 +181,22 @@ export default function Home() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
+
+  useEffect(() => {
+    const speechWindow = window as SpeechWindow;
+    window.setTimeout(() => {
+      setSpeechSupported(
+        Boolean(
+          speechWindow.SpeechRecognition ??
+            speechWindow.webkitSpeechRecognition
+        )
+      );
+    }, 0);
+
+    return () => {
+      recognitionRef.current?.stop();
+    };
+  }, []);
 
   const sendMessage = async (text = input) => {
     const content = text.trim();
@@ -252,6 +305,54 @@ export default function Home() {
     window.localStorage.removeItem(STORAGE_MESSAGES);
     window.localStorage.removeItem(STORAGE_CONVERSATION_ID);
     textareaRef.current?.focus();
+  };
+
+  const toggleVoiceInput = () => {
+    if (listening) {
+      recognitionRef.current?.stop();
+      setListening(false);
+      return;
+    }
+
+    const speechWindow = window as SpeechWindow;
+    const SpeechRecognition =
+      speechWindow.SpeechRecognition ??
+      speechWindow.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setSpeechSupported(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "ru-RU";
+    recognition.continuous = false;
+    recognition.interimResults = true;
+
+    recognition.onresult = (event) => {
+      let transcript = "";
+
+      for (let index = 0; index < event.results.length; index += 1) {
+        transcript += event.results[index][0].transcript;
+      }
+
+      setInput(transcript.trim());
+    };
+
+    recognition.onend = () => {
+      setListening(false);
+      recognitionRef.current = null;
+      textareaRef.current?.focus();
+    };
+
+    recognition.onerror = () => {
+      setListening(false);
+      recognitionRef.current = null;
+    };
+
+    recognitionRef.current = recognition;
+    setListening(true);
+    recognition.start();
   };
 
   return (
@@ -504,6 +605,25 @@ export default function Home() {
                     }
                   }}
                 />
+
+                <button
+                  onClick={toggleVoiceInput}
+                  disabled={!speechSupported || loading}
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md border ${
+                    listening
+                      ? "border-red-200 bg-red-50 text-red-700"
+                      : "border-neutral-200 text-neutral-600 hover:bg-neutral-50"
+                  } disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-300`}
+                  title={
+                    speechSupported
+                      ? listening
+                        ? "Остановить голосовой ввод"
+                        : "Голосовой ввод"
+                      : "Голосовой ввод не поддерживается браузером"
+                  }
+                >
+                  {listening ? <MicOff size={18} /> : <Mic size={18} />}
+                </button>
 
                 <button
                   onClick={() => void sendMessage()}
