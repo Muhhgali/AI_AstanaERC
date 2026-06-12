@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from "@supabase/supabase-js";
 import { createEmbedding } from "@/lib/embedding";
 
@@ -11,12 +12,34 @@ type KnowledgePayload = {
   source?: string;
 };
 
-const supabaseUrl = process.env.SUPABASE_URL!;
-const anonKey = process.env.SUPABASE_ANON_KEY!;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+let authClient: ReturnType<typeof createClient<any>> | null = null;
+let adminClient: ReturnType<typeof createClient<any>> | null = null;
 
-const authClient = createClient(supabaseUrl, anonKey);
-const adminClient = createClient(supabaseUrl, serviceRoleKey);
+function getAuthClient() {
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
+    throw new Error("Missing SUPABASE_URL or SUPABASE_ANON_KEY");
+  }
+
+  authClient ??= createClient<any>(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_ANON_KEY
+  );
+
+  return authClient;
+}
+
+function getAdminClient() {
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+  }
+
+  adminClient ??= createClient<any>(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
+
+  return adminClient;
+}
 
 async function requireUser(req: Request) {
   const authHeader = req.headers.get("authorization");
@@ -29,7 +52,7 @@ async function requireUser(req: Request) {
   const {
     data: { user },
     error,
-  } = await authClient.auth.getUser(token);
+  } = await getAuthClient().auth.getUser(token);
 
   if (error || !user) {
     return null;
@@ -96,7 +119,7 @@ export async function GET(req: Request) {
     return Response.json({ message: "Unauthorized" }, { status: 401 });
   }
 
-  const { data, error } = await adminClient
+  const { data, error } = await getAdminClient()
     .from("knowledge")
     .select("id,title,category,content,priority,verified,source")
     .order("verified", { ascending: false })
@@ -121,7 +144,7 @@ export async function POST(req: Request) {
     const payload = (await req.json()) as KnowledgePayload;
     const record = await buildRecord(payload);
 
-    const { data, error } = await adminClient
+    const { data, error } = await getAdminClient()
       .from("knowledge")
       .insert(record)
       .select("id,title,category,content,priority,verified,source")
@@ -157,7 +180,7 @@ export async function PATCH(req: Request) {
 
     const record = await buildRecord(payload);
 
-    const { data, error } = await adminClient
+    const { data, error } = await getAdminClient()
       .from("knowledge")
       .update(record)
       .eq("id", id)
@@ -191,7 +214,7 @@ export async function DELETE(req: Request) {
     return Response.json({ message: "ID is required" }, { status: 400 });
   }
 
-  const { error } = await adminClient
+  const { error } = await getAdminClient()
     .from("knowledge")
     .delete()
     .eq("id", id);

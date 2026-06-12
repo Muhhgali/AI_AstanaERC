@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from "@supabase/supabase-js";
 
 type ChatConversation = {
@@ -17,12 +18,34 @@ type ChatMessage = {
   created_at: string;
 };
 
-const supabaseUrl = process.env.SUPABASE_URL!;
-const anonKey = process.env.SUPABASE_ANON_KEY!;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+let authClient: ReturnType<typeof createClient<any>> | null = null;
+let adminClient: ReturnType<typeof createClient<any>> | null = null;
 
-const authClient = createClient(supabaseUrl, anonKey);
-const adminClient = createClient(supabaseUrl, serviceRoleKey);
+function getAuthClient() {
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
+    throw new Error("Missing SUPABASE_URL or SUPABASE_ANON_KEY");
+  }
+
+  authClient ??= createClient<any>(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_ANON_KEY
+  );
+
+  return authClient;
+}
+
+function getAdminClient() {
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+  }
+
+  adminClient ??= createClient<any>(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
+
+  return adminClient;
+}
 
 function isMissingHistoryTable(error: { code?: string; message?: string }) {
   return (
@@ -43,7 +66,7 @@ async function requireUser(req: Request) {
   const {
     data: { user },
     error,
-  } = await authClient.auth.getUser(token);
+  } = await getAuthClient().auth.getUser(token);
 
   if (error || !user) {
     return null;
@@ -63,7 +86,7 @@ export async function GET(req: Request) {
   const limit = Number(url.searchParams.get("limit") ?? 50);
 
   const { data: conversations, error: conversationsError } =
-    await adminClient
+    await getAdminClient()
       .from("chat_conversations")
       .select("id,title,created_at,updated_at")
       .order("updated_at", { ascending: false })
@@ -92,7 +115,7 @@ export async function GET(req: Request) {
     return Response.json({ conversations: [] });
   }
 
-  const { data: messages, error: messagesError } = await adminClient
+  const { data: messages, error: messagesError } = await getAdminClient()
     .from("chat_messages")
     .select("id,conversation_id,role,content,source,feedback,created_at")
     .in("conversation_id", ids)

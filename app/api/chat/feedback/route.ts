@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from "@supabase/supabase-js";
 
 type FeedbackPayload = {
@@ -5,10 +6,20 @@ type FeedbackPayload = {
   feedback?: "up" | "down";
 };
 
-const supabaseUrl = process.env.SUPABASE_URL!;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+let supabase: ReturnType<typeof createClient<any>> | null = null;
 
-const supabase = createClient(supabaseUrl, serviceRoleKey);
+function getSupabase() {
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+  }
+
+  supabase ??= createClient<any>(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
+
+  return supabase;
+}
 
 export async function POST(req: Request) {
   try {
@@ -21,7 +32,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const { error } = await supabase
+    const { error } = await getSupabase()
       .from("chat_messages")
       .update({ feedback: body.feedback })
       .eq("id", body.messageId)
@@ -39,4 +50,3 @@ export async function POST(req: Request) {
     return Response.json({ message }, { status: 500 });
   }
 }
-

@@ -1,16 +1,36 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 import { createEmbedding } from "@/lib/embedding";
 import { searchKnowledge } from "@/lib/retrieval";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
+let openai: OpenAI | null = null;
+let adminSupabase: ReturnType<typeof createClient<any>> | null = null;
 
-const adminSupabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+function getOpenAI() {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error("Missing OPENAI_API_KEY");
+  }
+
+  openai ??= new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+
+  return openai;
+}
+
+function getAdminSupabase() {
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+  }
+
+  adminSupabase ??= createClient<any>(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
+
+  return adminSupabase;
+}
 
 type ChatBodyMessage = {
   role?: "user" | "assistant";
@@ -22,7 +42,7 @@ async function ensureConversation(
   title: string
 ) {
   if (conversationId) {
-    const { data, error } = await adminSupabase
+    const { data, error } = await getAdminSupabase()
       .from("chat_conversations")
       .select("id")
       .eq("id", conversationId)
@@ -33,7 +53,7 @@ async function ensureConversation(
     }
   }
 
-  const { data, error } = await adminSupabase
+  const { data, error } = await getAdminSupabase()
     .from("chat_conversations")
     .insert({
       title: title.slice(0, 90),
@@ -54,7 +74,7 @@ async function saveChatMessage(
   content: string,
   source?: string
 ) {
-  const { data, error } = await adminSupabase
+  const { data, error } = await getAdminSupabase()
     .from("chat_messages")
     .insert({
       conversation_id: conversationId,
@@ -69,7 +89,7 @@ async function saveChatMessage(
     throw error;
   }
 
-  await adminSupabase
+  await getAdminSupabase()
     .from("chat_conversations")
     .update({ updated_at: new Date().toISOString() })
     .eq("id", conversationId);
@@ -203,7 +223,7 @@ ${r.content}
 
     // ===== GPT =====
     const completion =
-      await openai.chat.completions.create({
+      await getOpenAI().chat.completions.create({
         model: "gpt-4.1-mini",
 
         temperature: 0.3,
