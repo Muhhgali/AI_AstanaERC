@@ -12,7 +12,8 @@
     "lint": "eslint",
     "knowledge:upsert": "tsx scripts/upsertKnowledge.ts",
     "knowledge:upsert:verified": "tsx scripts/upsertKnowledge.ts data/verifiedKnowledge.json",
-    "knowledge:compact": "tsx scripts/compactKnowledge.ts"
+    "knowledge:compact": "tsx scripts/compactKnowledge.ts",
+    "knowledge:replace:compact": "tsx scripts/replaceKnowledge.ts data/knowledge.compact.json --yes"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

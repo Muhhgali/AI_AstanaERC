@@ -18,6 +18,20 @@ type ChatMessage = {
   created_at: string;
 };
 
+type KnowledgeGap = {
+  id: string;
+  conversation_id: string | null;
+  assistant_message_id: string | null;
+  topic: string;
+  user_question: string;
+  assistant_answer: string | null;
+  reason: string;
+  status: "open" | "resolved";
+  top_similarity: number | null;
+  created_at: string;
+  resolved_at: string | null;
+};
+
 let authClient: ReturnType<typeof createClient<any>> | null = null;
 let adminClient: ReturnType<typeof createClient<any>> | null = null;
 
@@ -57,6 +71,13 @@ function isMissingHistoryTable(error: { code?: string; message?: string }) {
     error.code === "PGRST205" ||
     Boolean(error.message?.includes("chat_conversations")) ||
     Boolean(error.message?.includes("chat_messages"))
+  );
+}
+
+function isMissingKnowledgeGapsTable(error: { code?: string; message?: string }) {
+  return (
+    error.code === "PGRST205" ||
+    Boolean(error.message?.includes("knowledge_gaps"))
   );
 }
 
@@ -107,6 +128,8 @@ export async function GET(req: Request) {
     if (isMissingHistoryTable(conversationsError)) {
       return Response.json({
         conversations: [],
+        knowledgeGaps: [],
+        gapSetupRequired: false,
         setupRequired: true,
         message:
           "История еще не настроена. Выполни scripts/chatHistory.sql в Supabase SQL Editor.",
@@ -119,11 +142,33 @@ export async function GET(req: Request) {
     );
   }
 
+  const { data: gaps, error: gapsError } = await getAdminClient()
+    .from("knowledge_gaps")
+    .select(
+      "id,conversation_id,assistant_message_id,topic,user_question,assistant_answer,reason,status,top_similarity,created_at,resolved_at"
+    )
+    .eq("status", "open")
+    .order("created_at", { ascending: false })
+    .limit(40);
+
+  const safeGaps = gapsError ? [] : ((gaps ?? []) as KnowledgeGap[]);
+  const gapSetupRequired = gapsError
+    ? isMissingKnowledgeGapsTable(gapsError)
+    : false;
+
+  if (gapsError && !gapSetupRequired) {
+    return Response.json({ message: gapsError.message }, { status: 500 });
+  }
+
   const safeConversations = (conversations ?? []) as ChatConversation[];
   const ids = safeConversations.map((item) => item.id);
 
   if (ids.length === 0) {
-    return Response.json({ conversations: [] });
+    return Response.json({
+      conversations: [],
+      knowledgeGaps: safeGaps,
+      gapSetupRequired,
+    });
   }
 
   const { data: messages, error: messagesError } = await getAdminClient()
@@ -139,6 +184,8 @@ export async function GET(req: Request) {
           ...conversation,
           messages: [],
         })),
+        knowledgeGaps: safeGaps,
+        gapSetupRequired,
         setupRequired: true,
         message:
           "Таблица сообщений истории еще не настроена. Выполни scripts/chatHistory.sql в Supabase SQL Editor.",
@@ -164,5 +211,47 @@ export async function GET(req: Request) {
       ...conversation,
       messages: grouped[conversation.id] ?? [],
     })),
+    knowledgeGaps: safeGaps,
+    gapSetupRequired,
   });
+}
+
+export async function PATCH(req: Request) {
+  const user = await requireUser(req);
+
+  if (!user) {
+    return Response.json(
+      {
+        message:
+          "Сессия администратора не прошла проверку. Войди заново и проверь Supabase env-переменные на Vercel.",
+      },
+      { status: 401 }
+    );
+  }
+
+  const body = (await req.json().catch(() => ({}))) as {
+    gapId?: string;
+    status?: "open" | "resolved";
+  };
+
+  if (!body.gapId || !body.status) {
+    return Response.json(
+      { message: "gapId and status are required" },
+      { status: 400 }
+    );
+  }
+
+  const { error } = await getAdminClient()
+    .from("knowledge_gaps")
+    .update({
+      status: body.status,
+      resolved_at: body.status === "resolved" ? new Date().toISOString() : null,
+    })
+    .eq("id", body.gapId);
+
+  if (error) {
+    return Response.json({ message: error.message }, { status: 500 });
+  }
+
+  return Response.json({ ok: true });
 }

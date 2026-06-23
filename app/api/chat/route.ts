@@ -37,6 +37,12 @@ type ChatBodyMessage = {
   content?: string;
 };
 
+type KnowledgeGapReason =
+  | "no-match"
+  | "weak-match"
+  | "unverified-match"
+  | "gpt-answer";
+
 async function ensureConversation(
   conversationId: string | undefined,
   title: string
@@ -127,6 +133,112 @@ async function saveTurn(params: {
       conversationId: params.conversationId,
       messageId: undefined,
     };
+  }
+}
+
+function inferGapTopic(question: string) {
+  const normalized = question.toLowerCase();
+
+  const matches = [
+    {
+      topic: "Оплата",
+      keywords: ["оплат", "kaspi", "каспи", "платеж", "банк"],
+    },
+    {
+      topic: "Показания счетчиков",
+      keywords: ["показан", "счетчик", "счётчик", "электр", "вода", "газ"],
+    },
+    {
+      topic: "Квитанции и ЕПД",
+      keywords: ["квитанц", "епд", "достав", "дубликат"],
+    },
+    {
+      topic: "Лицевой счет",
+      keywords: ["лицев", "счет", "счёт", "владел", "прожива"],
+    },
+    {
+      topic: "Начисления и перерасчет",
+      keywords: ["начисл", "перерасчет", "перерасчёт", "долг", "ошиб"],
+    },
+    {
+      topic: "Контакты и офис",
+      keywords: ["адрес", "офис", "телефон", "график", "поддерж"],
+    },
+    {
+      topic: "Онлайн-сервисы",
+      keywords: ["сайт", "кабинет", "telegram", "телеграм", "онлайн"],
+    },
+  ];
+
+  return (
+    matches.find((item) =>
+      item.keywords.some((keyword) => normalized.includes(keyword))
+    )?.topic ?? question.trim().slice(0, 90)
+  );
+}
+
+function hasMissingInfoAnswer(answer: string) {
+  const normalized = answer.toLowerCase();
+
+  return [
+    "точной информации нет",
+    "нет точной информации",
+    "информации нет",
+    "нет в базе",
+    "уточнить",
+    "обратиться в поддержку",
+  ].some((phrase) => normalized.includes(phrase));
+}
+
+function getGapReason(params: {
+  top?: { similarity: number; verified?: boolean | null };
+  assistantMessage: string;
+}): KnowledgeGapReason | null {
+  if (!params.top) {
+    return "no-match";
+  }
+
+  if (hasMissingInfoAnswer(params.assistantMessage)) {
+    return "gpt-answer";
+  }
+
+  if (!params.top.verified) {
+    return "unverified-match";
+  }
+
+  if (params.top.similarity < 0.72) {
+    return "weak-match";
+  }
+
+  return null;
+}
+
+async function saveKnowledgeGap(params: {
+  conversationId?: string;
+  assistantMessageId?: string;
+  userQuestion: string;
+  assistantAnswer: string;
+  reason: KnowledgeGapReason;
+  topSimilarity?: number;
+}) {
+  try {
+    const { error } = await getAdminSupabase()
+      .from("knowledge_gaps")
+      .insert({
+        conversation_id: params.conversationId,
+        assistant_message_id: params.assistantMessageId,
+        topic: inferGapTopic(params.userQuestion),
+        user_question: params.userQuestion,
+        assistant_answer: params.assistantAnswer,
+        reason: params.reason,
+        top_similarity: params.topSimilarity ?? null,
+      });
+
+    if (error) {
+      console.warn("KNOWLEDGE GAP SAVE SKIPPED:", error);
+    }
+  } catch (error) {
+    console.warn("KNOWLEDGE GAP SAVE SKIPPED:", error);
   }
 }
 
@@ -273,6 +385,22 @@ ${context}
       assistantMessage,
       source: "gpt",
     });
+
+    const gapReason = getGapReason({
+      top,
+      assistantMessage,
+    });
+
+    if (gapReason) {
+      await saveKnowledgeGap({
+        conversationId: saved.conversationId,
+        assistantMessageId: saved.messageId,
+        userQuestion: lastMessage,
+        assistantAnswer: assistantMessage,
+        reason: gapReason,
+        topSimilarity: top?.similarity,
+      });
+    }
 
     // ===== RESPONSE =====
     return Response.json({

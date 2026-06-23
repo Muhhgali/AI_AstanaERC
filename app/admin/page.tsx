@@ -42,6 +42,20 @@ type HistoryConversation = {
   messages: HistoryMessage[];
 };
 
+type KnowledgeGap = {
+  id: string;
+  conversation_id: string | null;
+  assistant_message_id: string | null;
+  topic: string;
+  user_question: string;
+  assistant_answer: string | null;
+  reason: string;
+  status: "open" | "resolved";
+  top_similarity: number | null;
+  created_at: string;
+  resolved_at: string | null;
+};
+
 type Category = {
   id: string;
   label: string;
@@ -177,11 +191,15 @@ function feedbackLabel(feedback: HistoryMessage["feedback"]) {
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<
-    "knowledge" | "history" | "documents"
+    "knowledge" | "review" | "history" | "documents"
   >("knowledge");
   const [items, setItems] = useState<KnowledgeItem[]>([]);
   const [history, setHistory] = useState<HistoryConversation[]>([]);
+  const [knowledgeGaps, setKnowledgeGaps] = useState<KnowledgeGap[]>([]);
+  const [gapSetupRequired, setGapSetupRequired] = useState(false);
+  const [activeGapId, setActiveGapId] = useState<string | null>(null);
   const [form, setForm] = useState<KnowledgeForm>(EMPTY_FORM);
+  const [reviewForm, setReviewForm] = useState<KnowledgeForm | null>(null);
   const [query, setQuery] = useState("");
   const [historyQuery, setHistoryQuery] = useState("");
   const [documentFile, setDocumentFile] = useState<File | null>(null);
@@ -189,6 +207,7 @@ export default function AdminPage() {
   const [documentAnalysis, setDocumentAnalysis] = useState("");
   const [documentName, setDocumentName] = useState("");
   const [activeCategory, setActiveCategory] = useState("all");
+  const [reviewIndex, setReviewIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [documentLoading, setDocumentLoading] = useState(false);
@@ -269,8 +288,12 @@ export default function AdminPage() {
     try {
       const data = await apiRequest<{
         conversations: HistoryConversation[];
+        knowledgeGaps?: KnowledgeGap[];
+        gapSetupRequired?: boolean;
       }>("/api/admin/history?limit=80");
       setHistory(data.conversations);
+      setKnowledgeGaps(data.knowledgeGaps ?? []);
+      setGapSetupRequired(Boolean(data.gapSetupRequired));
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Не удалось загрузить историю";
@@ -315,6 +338,31 @@ export default function AdminPage() {
     () => items.filter((item) => item.verified).length,
     [items]
   );
+
+  const reviewItems = useMemo(
+    () => items.filter((item) => !item.verified),
+    [items]
+  );
+
+  const reviewItemIndex =
+    reviewItems.length === 0
+      ? 0
+      : Math.min(reviewIndex, reviewItems.length - 1);
+  const currentReviewItem = reviewItems[reviewItemIndex];
+  const activeReviewForm =
+    reviewForm?.id === currentReviewItem?.id
+      ? reviewForm
+      : currentReviewItem
+        ? {
+            id: currentReviewItem.id,
+            title: currentReviewItem.title,
+            category: getCategoryId(currentReviewItem.category),
+            content: currentReviewItem.content,
+            priority: currentReviewItem.priority ?? 0,
+            verified: true,
+            source: currentReviewItem.source ?? "review",
+          }
+        : null;
 
   const feedbackStats = useMemo(() => {
     const messages = history.flatMap((conversation) => conversation.messages);
@@ -366,8 +414,24 @@ export default function AdminPage() {
     );
   }, [history, historyQuery]);
 
+  const filteredKnowledgeGaps = useMemo(() => {
+    const normalizedQuery = historyQuery.trim().toLowerCase();
+
+    if (!normalizedQuery) {
+      return knowledgeGaps;
+    }
+
+    return knowledgeGaps.filter((gap) =>
+      [gap.topic, gap.user_question, gap.assistant_answer ?? "", gap.reason]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery)
+    );
+  }, [historyQuery, knowledgeGaps]);
+
   const resetForm = () => {
     setForm(EMPTY_FORM);
+    setActiveGapId(null);
     setError("");
   };
 
@@ -392,6 +456,7 @@ export default function AdminPage() {
       source: item.source ?? "admin",
     });
     setActiveTab("knowledge");
+    setActiveGapId(null);
     setError("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -407,6 +472,7 @@ export default function AdminPage() {
 
     try {
       const method = form.id ? "PATCH" : "POST";
+      const gapToResolve = activeGapId;
 
       await apiRequest("/api/admin/knowledge", {
         method,
@@ -415,6 +481,19 @@ export default function AdminPage() {
 
       resetForm();
       await loadKnowledge();
+
+      if (gapToResolve) {
+        await apiRequest("/api/admin/history", {
+          method: "PATCH",
+          body: JSON.stringify({
+            gapId: gapToResolve,
+            status: "resolved",
+          }),
+        });
+        setKnowledgeGaps((prev) =>
+          prev.filter((gap) => gap.id !== gapToResolve)
+        );
+      }
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Не удалось сохранить";
@@ -448,6 +527,68 @@ export default function AdminPage() {
     }
   };
 
+  const confirmReviewItem = async () => {
+    if (!activeReviewForm?.id) {
+      return;
+    }
+
+    if (
+      !activeReviewForm.title.trim() ||
+      !activeReviewForm.category.trim() ||
+      !activeReviewForm.content.trim()
+    ) {
+      setError("Заполни заголовок, категорию и ответ перед подтверждением.");
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+
+    try {
+      const payload = {
+        ...activeReviewForm,
+        verified: true,
+      };
+
+      await apiRequest("/api/admin/knowledge", {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+
+      setItems((prev) =>
+        prev.map((item) =>
+          item.id === activeReviewForm.id
+            ? {
+                ...item,
+                title: payload.title,
+                category: payload.category,
+                content: payload.content,
+                priority: payload.priority,
+                verified: true,
+                source: payload.source,
+              }
+            : item
+        )
+      );
+      setReviewForm(null);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Не удалось подтвердить запись";
+      setError(message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const skipReviewItem = () => {
+    if (reviewItems.length === 0) {
+      return;
+    }
+
+    setReviewIndex((prev) => (prev + 1) % reviewItems.length);
+    setError("");
+  };
+
   const createKnowledgeFromQuestion = (conversation: HistoryConversation) => {
     const userMessage =
       conversation.messages.find((message) => message.role === "user")
@@ -459,8 +600,44 @@ export default function AdminPage() {
       content: "",
       source: "history",
     });
+    setActiveGapId(null);
     setActiveTab("knowledge");
     window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const createKnowledgeFromGap = (gap: KnowledgeGap) => {
+    setForm({
+      ...EMPTY_FORM,
+      title: gap.topic.slice(0, 90),
+      content: "",
+      source: "knowledge-gap",
+      verified: true,
+    });
+    setActiveGapId(gap.id);
+    setActiveTab("knowledge");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const closeKnowledgeGap = async (gap: KnowledgeGap) => {
+    setError("");
+
+    try {
+      await apiRequest("/api/admin/history", {
+        method: "PATCH",
+        body: JSON.stringify({
+          gapId: gap.id,
+          status: "resolved",
+        }),
+      });
+      setKnowledgeGaps((prev) => prev.filter((item) => item.id !== gap.id));
+      if (activeGapId === gap.id) {
+        setActiveGapId(null);
+      }
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Не удалось закрыть тему";
+      setError(message);
+    }
   };
 
   const analyzeDocument = async () => {
@@ -592,6 +769,16 @@ export default function AdminPage() {
             История вопросов
           </button>
           <button
+            onClick={() => setActiveTab("review")}
+            className={`h-10 rounded-md px-4 text-sm font-semibold ${
+              activeTab === "review"
+                ? "bg-blue-600 text-white"
+                : "text-neutral-600 hover:bg-neutral-50"
+            }`}
+          >
+            Проверка ({reviewItems.length})
+          </button>
+          <button
             onClick={() => setActiveTab("documents")}
             className={`h-10 rounded-md px-4 text-sm font-semibold ${
               activeTab === "documents"
@@ -611,7 +798,7 @@ export default function AdminPage() {
 
         {activeTab === "knowledge" ? (
           <>
-            <section className="mb-5 grid gap-3 md:grid-cols-3">
+            <section className="mb-5 grid gap-3 md:grid-cols-4">
               <div className="rounded-lg border border-neutral-200 bg-white p-4">
                 <div className="text-sm text-neutral-500">Всего записей</div>
                 <div className="mt-2 text-3xl font-semibold">
@@ -922,6 +1109,197 @@ export default function AdminPage() {
               </section>
             </div>
           </>
+        ) : activeTab === "review" ? (
+          <>
+            <section className="mb-5 grid gap-3 md:grid-cols-3">
+              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+                <div className="text-sm text-neutral-500">Осталось проверить</div>
+                <div className="mt-2 text-3xl font-semibold">
+                  {reviewItems.length}
+                </div>
+              </div>
+              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+                <div className="text-sm text-neutral-500">Проверено</div>
+                <div className="mt-2 text-3xl font-semibold">
+                  {verifiedCount}
+                </div>
+              </div>
+              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+                <div className="text-sm text-neutral-500">Текущая запись</div>
+                <div className="mt-2 text-3xl font-semibold">
+                  {reviewItems.length > 0 ? reviewItemIndex + 1 : 0}
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-lg border border-neutral-200 bg-white">
+              <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="font-semibold">Поочередная проверка базы</h2>
+                  <p className="mt-1 text-sm text-neutral-500">
+                    Исправь запись при необходимости и подтверди ее для ответов бота.
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => void loadKnowledge()}
+                  className="h-10 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50"
+                >
+                  Обновить
+                </button>
+              </div>
+
+              {loading ? (
+                <div className="p-5 text-sm text-neutral-500">
+                  Загружаю записи...
+                </div>
+              ) : !currentReviewItem || !activeReviewForm ? (
+                <div className="p-5">
+                  <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                    Все записи подтверждены. Новые черновики появятся здесь автоматически.
+                  </div>
+                </div>
+              ) : (
+                <div className="grid gap-6 p-5 lg:grid-cols-[1fr_320px]">
+                  <div>
+                    <div className="mb-4 flex flex-wrap items-center gap-2">
+                      <span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
+                        {getCategoryLabel(currentReviewItem.category)}
+                      </span>
+                      <span className="rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600">
+                        Черновик
+                      </span>
+                      <span className="text-xs text-neutral-500">
+                        Источник: {currentReviewItem.source ?? "не указан"}
+                      </span>
+                    </div>
+
+                    <label className="mb-4 block">
+                      <span className="mb-1 block text-sm font-medium text-neutral-700">
+                        Заголовок
+                      </span>
+                      <input
+                        value={activeReviewForm.title}
+                        onChange={(e) =>
+                          setReviewForm({
+                            ...activeReviewForm,
+                            title: e.target.value,
+                          })
+                        }
+                        className="h-11 w-full rounded-md border border-neutral-300 bg-white px-3 outline-none focus:border-blue-600"
+                      />
+                    </label>
+
+                    <label className="mb-4 block">
+                      <span className="mb-1 block text-sm font-medium text-neutral-700">
+                        Раздел
+                      </span>
+                      <select
+                        value={activeReviewForm.category}
+                        onChange={(e) =>
+                          setReviewForm({
+                            ...activeReviewForm,
+                            category: e.target.value,
+                          })
+                        }
+                        className="h-11 w-full rounded-md border border-neutral-300 bg-white px-3 outline-none focus:border-blue-600"
+                      >
+                        {CATEGORIES.map((category) => (
+                          <option key={category.id} value={category.id}>
+                            {category.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="mb-4 block">
+                      <span className="mb-1 block text-sm font-medium text-neutral-700">
+                        Ответ для бота
+                      </span>
+                      <textarea
+                        value={activeReviewForm.content}
+                        onChange={(e) =>
+                          setReviewForm({
+                            ...activeReviewForm,
+                            content: e.target.value,
+                          })
+                        }
+                        className="min-h-72 w-full resize-y rounded-md border border-neutral-300 bg-white px-3 py-2 leading-6 outline-none focus:border-blue-600"
+                      />
+                    </label>
+
+                    <div className="grid gap-3 md:grid-cols-[1fr_140px]">
+                      <label className="block">
+                        <span className="mb-1 block text-sm font-medium text-neutral-700">
+                          Источник
+                        </span>
+                        <input
+                          value={activeReviewForm.source}
+                          onChange={(e) =>
+                            setReviewForm({
+                              ...activeReviewForm,
+                              source: e.target.value,
+                            })
+                          }
+                          className="h-11 w-full rounded-md border border-neutral-300 bg-white px-3 outline-none focus:border-blue-600"
+                        />
+                      </label>
+
+                      <label className="block">
+                        <span className="mb-1 block text-sm font-medium text-neutral-700">
+                          Приоритет
+                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={activeReviewForm.priority}
+                          onChange={(e) =>
+                            setReviewForm({
+                              ...activeReviewForm,
+                              priority: Number(e.target.value),
+                            })
+                          }
+                          className="h-11 w-full rounded-md border border-neutral-300 bg-white px-3 outline-none focus:border-blue-600"
+                        />
+                      </label>
+                    </div>
+                  </div>
+
+                  <aside className="h-fit rounded-lg border border-neutral-200 bg-neutral-50 p-4">
+                    <h3 className="font-semibold">Действия</h3>
+                    <p className="mt-2 text-sm leading-5 text-neutral-500">
+                      Подтверждение сохранит правки, поставит статус “проверено” и пересчитает embedding.
+                    </p>
+
+                    <div className="mt-4 grid gap-2">
+                      <button
+                        onClick={() => void confirmReviewItem()}
+                        disabled={saving}
+                        className="h-11 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                      >
+                        {saving ? "Сохраняю..." : "Подтвердить и дальше"}
+                      </button>
+                      <button
+                        onClick={skipReviewItem}
+                        disabled={saving || reviewItems.length < 2}
+                        className="h-11 rounded-md border border-neutral-300 bg-white px-4 text-sm font-semibold hover:bg-neutral-50 disabled:cursor-not-allowed disabled:text-neutral-400"
+                      >
+                        Пропустить
+                      </button>
+                      <button
+                        onClick={() => void deleteItem(currentReviewItem)}
+                        disabled={saving}
+                        className="h-11 rounded-md border border-red-200 bg-white px-4 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:text-neutral-400"
+                      >
+                        Удалить запись
+                      </button>
+                    </div>
+                  </aside>
+                </div>
+              )}
+            </section>
+          </>
         ) : activeTab === "history" ? (
           <>
             <section className="mb-5 grid gap-3 md:grid-cols-3">
@@ -943,6 +1321,86 @@ export default function AdminPage() {
                   {feedbackStats.down}
                 </div>
               </div>
+              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+                <div className="text-sm text-neutral-500">
+                  Тем к дополнению
+                </div>
+                <div className="mt-2 text-3xl font-semibold">
+                  {knowledgeGaps.length}
+                </div>
+              </div>
+            </section>
+
+            <section className="mb-5 rounded-lg border border-neutral-200 bg-white">
+              <div className="border-b border-neutral-200 p-4">
+                <h2 className="font-semibold">Нужно дополнить базу</h2>
+                <p className="mt-1 text-sm text-neutral-500">
+                  Сюда попадают вопросы, где бот не нашёл точный проверенный
+                  ответ или ответил неуверенно через GPT.
+                </p>
+              </div>
+
+              {gapSetupRequired ? (
+                <div className="p-4 text-sm leading-6 text-amber-700">
+                  Таблица тем ещё не создана. Выполни scripts/chatHistory.sql в
+                  Supabase SQL Editor, после этого новые непонятные вопросы
+                  начнут появляться здесь.
+                </div>
+              ) : filteredKnowledgeGaps.length === 0 ? (
+                <div className="p-4 text-sm text-neutral-500">
+                  Пока нет новых тем для дополнения.
+                </div>
+              ) : (
+                <div className="divide-y divide-neutral-200">
+                  {filteredKnowledgeGaps.map((gap) => (
+                    <article key={gap.id} className="p-4">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div className="min-w-0">
+                          <div className="mb-2 flex flex-wrap items-center gap-2">
+                            <span className="rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800">
+                              {gap.topic}
+                            </span>
+                            <span className="rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600">
+                              {formatDate(gap.created_at)}
+                            </span>
+                            <span className="rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600">
+                              {gap.reason}
+                            </span>
+                            {typeof gap.top_similarity === "number" && (
+                              <span className="rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600">
+                                {Math.round(gap.top_similarity * 100)}%
+                              </span>
+                            )}
+                          </div>
+                          <h3 className="text-base font-semibold">
+                            {gap.user_question}
+                          </h3>
+                          {gap.assistant_answer && (
+                            <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-sm leading-6 text-neutral-600">
+                              {gap.assistant_answer}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="flex shrink-0 gap-2">
+                          <button
+                            onClick={() => createKnowledgeFromGap(gap)}
+                            className="h-9 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50"
+                          >
+                            Добавить в базу
+                          </button>
+                          <button
+                            onClick={() => void closeKnowledgeGap(gap)}
+                            className="h-9 rounded-md border border-neutral-300 px-3 text-sm font-medium text-neutral-600 hover:bg-neutral-50"
+                          >
+                            Закрыть
+                          </button>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
             </section>
 
             <section className="rounded-lg border border-neutral-200 bg-white">
