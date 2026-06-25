@@ -1,18 +1,24 @@
 export type MeterCorrectionDraft = {
   accountNumber?: string;
+  serviceType?: string;
   meterNumber?: string;
   correctReading?: string;
   contact?: string;
-  serviceType?: string;
   reason?: string;
 };
 
 export type MeterCorrectionRequest = Required<
-  Pick<MeterCorrectionDraft, "accountNumber" | "meterNumber" | "correctReading" | "contact">
+  Pick<
+    MeterCorrectionDraft,
+    "accountNumber" | "serviceType" | "meterNumber" | "correctReading" | "contact"
+  >
 > &
-  Pick<MeterCorrectionDraft, "serviceType" | "reason"> & {
+  Pick<MeterCorrectionDraft, "reason"> & {
     rawText: string;
   };
+
+const SERVICE_OPTIONS =
+  "электроэнергия, холодная вода, горячая вода, подогрев воды или газ";
 
 const INTENT_WORDS = [
   "исправ",
@@ -21,6 +27,8 @@ const INTENT_WORDS = [
   "не могу передать",
   "не получается передать",
   "меньше",
+  "повышен",
+  "завышен",
   "показан",
   "счетчик",
   "счётчик",
@@ -50,12 +58,24 @@ export function inferServiceType(text: string) {
     return "электроэнергия";
   }
 
+  if (
+    normalized.includes("подогрев") ||
+    normalized.includes("подогрев воды") ||
+    normalized.includes("нагрев")
+  ) {
+    return "подогрев воды";
+  }
+
   if (normalized.includes("горяч") || normalized.includes("гвс")) {
     return "горячая вода";
   }
 
-  if (normalized.includes("холод") || normalized.includes("хвс") || normalized.includes("вод")) {
-    return "вода";
+  if (
+    normalized.includes("холод") ||
+    normalized.includes("хвс") ||
+    normalized.includes("вода")
+  ) {
+    return "холодная вода";
   }
 
   if (normalized.includes("газ")) {
@@ -79,38 +99,54 @@ function findAfterLabel(text: string, labels: string[]) {
   return undefined;
 }
 
+function extractExplicitAccount(text: string) {
+  return findAfterLabel(text, [
+    "лицевой счет",
+    "лицевой счёт",
+    "лицевой",
+    "лс",
+    "л/с",
+  ]);
+}
+
 export function extractMeterCorrectionDraft(text: string): MeterCorrectionDraft {
+  const contact =
+    text.match(/\+?\d[\d\s()_-]{8,}\d/)?.[0]?.trim() ??
+    text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0];
+  const fallbackAccount = text.match(/\b\d{7,12}\b/)?.[0];
+  const contactDigits = contact?.replace(/\D/g, "");
   const accountNumber =
-    findAfterLabel(text, ["лицевой счет", "лицевой счёт", "лс", "л/с"]) ??
-    text.match(/\b\d{7,12}\b/)?.[0];
+    extractExplicitAccount(text) ??
+    (fallbackAccount && fallbackAccount !== contactDigits
+      ? fallbackAccount
+      : undefined);
 
   const meterNumber = findAfterLabel(text, [
     "номер счетчика",
     "номер счётчика",
     "счетчик",
     "счётчик",
+    "номер прибора",
     "прибор",
   ]);
 
   const correctReading =
     findAfterLabel(text, [
-      "показания",
       "правильные показания",
+      "показания",
       "должно быть",
       "надо поставить",
+      "нужно поставить",
       "передать",
-    ]) ?? text.match(/\b\d{1,7}(?:[.,]\d{1,3})?\b(?=\s*(?:квт|квтч|м3|куб|$))/i)?.[0];
-
-  const contact =
-    text.match(/\+?\d[\d\s()_-]{8,}\d/)?.[0]?.trim() ??
-    text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0];
+    ]) ??
+    text.match(/\b\d{1,7}(?:[.,]\d{1,3})?\b(?=\s*(?:квт|квтч|м3|куб|$))/i)?.[0];
 
   return {
     accountNumber,
+    serviceType: inferServiceType(text),
     meterNumber,
     correctReading,
     contact,
-    serviceType: inferServiceType(text),
     reason: text,
   };
 }
@@ -121,10 +157,10 @@ export function mergeMeterCorrectionDrafts(messages: { content?: string }[]) {
 
     return {
       accountNumber: acc.accountNumber ?? draft.accountNumber,
+      serviceType: acc.serviceType ?? draft.serviceType,
       meterNumber: acc.meterNumber ?? draft.meterNumber,
       correctReading: acc.correctReading ?? draft.correctReading,
       contact: acc.contact ?? draft.contact,
-      serviceType: acc.serviceType ?? draft.serviceType,
       reason: draft.reason || acc.reason,
     };
   }, {});
@@ -134,25 +170,29 @@ export function getMissingMeterCorrectionFields(draft: MeterCorrectionDraft) {
   const missing = [];
 
   if (!draft.accountNumber) missing.push("лицевой счёт");
-  if (!draft.meterNumber) missing.push("номер счётчика");
+  if (!draft.serviceType) {
+    missing.push(`вид услуги или счётчика (${SERVICE_OPTIONS})`);
+  }
+  if (!draft.meterNumber) missing.push("номер счётчика или прибора учёта");
   if (!draft.correctReading) missing.push("правильные показания");
-  if (!draft.contact) missing.push("контакт для связи");
+  if (!draft.contact) missing.push("телефон или email для связи");
 
   return missing;
 }
 
 export function buildMeterCorrectionQuestion(missing: string[]) {
   return [
-    "Чтобы создать заявку на корректировку показаний, пришлите:",
+    "Чтобы создать заявку на корректировку показаний, нужно уточнить:",
     ...missing.map((field) => `- ${field}`),
     "",
-    "Можно одним сообщением: лицевой счёт, номер счётчика, правильные показания и телефон или email.",
+    "Удобно отправить одним сообщением: лицевой счёт, вид услуги, номер счётчика, правильные показания и телефон или email для связи.",
+    `Вид услуги можно указать так: ${SERVICE_OPTIONS}.`,
   ].join("\n");
 }
 
 export function buildMeterCorrectionCreatedMessage(requestNumber: string) {
   return [
     `Заявка на корректировку показаний создана: ${requestNumber}.`,
-    "Специалист проверит данные и свяжется по указанному контакту.",
+    "Специалист проверит лицевой счёт, вид услуги, номер счётчика и правильные показания, затем свяжется по указанному телефону или email.",
   ].join("\n");
 }
