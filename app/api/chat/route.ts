@@ -5,6 +5,13 @@ import { createEmbedding } from "@/lib/embedding";
 import { searchKnowledge } from "@/lib/retrieval";
 import { getSupabaseProjectUrl } from "@/lib/supabaseEnv";
 import {
+  buildMeterCorrectionCreatedMessage,
+  buildMeterCorrectionQuestion,
+  getMissingMeterCorrectionFields,
+  isMeterCorrectionIntent,
+  mergeMeterCorrectionDrafts,
+} from "@/lib/meterCorrection";
+import {
   buildSupplierManagerMessage,
   findSupplierManager,
 } from "@/lib/suppliers";
@@ -249,6 +256,46 @@ async function saveKnowledgeGap(params: {
   }
 }
 
+async function createMeterCorrectionRequest(params: {
+  conversationId?: string;
+  draft: ReturnType<typeof mergeMeterCorrectionDrafts>;
+  rawText: string;
+}) {
+  const requestNumber = `MC-${Date.now().toString(36).toUpperCase()}`;
+  const { error } = await getAdminSupabase()
+    .from("meter_correction_requests")
+    .insert({
+      request_number: requestNumber,
+      conversation_id: params.conversationId,
+      account_number: params.draft.accountNumber,
+      meter_number: params.draft.meterNumber,
+      correct_reading: params.draft.correctReading,
+      contact: params.draft.contact,
+      service_type: params.draft.serviceType,
+      reason: params.draft.reason ?? params.rawText,
+      raw_text: params.rawText,
+    });
+
+  if (error) {
+    throw error;
+  }
+
+  return requestNumber;
+}
+
+function isMissingMeterCorrectionTable(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const maybeError = error as { code?: string; message?: string };
+
+  return (
+    maybeError.code === "PGRST205" ||
+    Boolean(maybeError.message?.includes("meter_correction_requests"))
+  );
+}
+
 export async function POST(req: Request) {
   try {
     // ===== BODY =====
@@ -286,6 +333,61 @@ export async function POST(req: Request) {
           status: 400,
         }
       );
+    }
+
+    const userMessages = messages.filter((message) => message.role === "user");
+    const meterCorrectionDraft = mergeMeterCorrectionDrafts(userMessages);
+    const meterCorrectionActive =
+      isMeterCorrectionIntent(lastMessage) ||
+      messages.some(
+        (message) =>
+          message.role === "assistant" &&
+          message.content?.includes("заявку на корректировку показаний")
+      );
+
+    if (meterCorrectionActive) {
+      const missingFields = getMissingMeterCorrectionFields(
+        meterCorrectionDraft
+      );
+      let assistantMessage = buildMeterCorrectionQuestion(missingFields);
+      let source = "meter-correction-form";
+
+      if (missingFields.length === 0) {
+        try {
+          assistantMessage = buildMeterCorrectionCreatedMessage(
+            await createMeterCorrectionRequest({
+              conversationId,
+              draft: meterCorrectionDraft,
+              rawText: userMessages
+                .map((message) => message.content)
+                .join("\n"),
+            })
+          );
+          source = "meter-correction-created";
+        } catch (error) {
+          if (!isMissingMeterCorrectionTable(error)) {
+            throw error;
+          }
+
+          assistantMessage =
+            "Данные для заявки собраны, но таблица заявок ещё не настроена. Администратору нужно выполнить scripts/chatHistory.sql в Supabase SQL Editor.";
+          source = "meter-correction-setup-required";
+        }
+      }
+
+      const saved = await saveTurn({
+        conversationId,
+        userMessage: lastMessage,
+        assistantMessage,
+        source,
+      });
+
+      return Response.json({
+        message: assistantMessage,
+        source,
+        conversationId: saved.conversationId,
+        messageId: saved.messageId,
+      });
     }
 
     const supplierCard = findSupplierManager(lastMessage);

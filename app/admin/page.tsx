@@ -56,6 +56,20 @@ type KnowledgeGap = {
   resolved_at: string | null;
 };
 
+type MeterCorrectionRequest = {
+  id: string;
+  request_number: string;
+  account_number: string;
+  meter_number: string;
+  correct_reading: string;
+  contact: string;
+  service_type: string | null;
+  reason: string | null;
+  status: "new" | "in_progress" | "done" | "rejected";
+  created_at: string;
+  updated_at: string;
+};
+
 type Category = {
   id: string;
   label: string;
@@ -191,11 +205,14 @@ function feedbackLabel(feedback: HistoryMessage["feedback"]) {
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<
-    "knowledge" | "review" | "history" | "documents"
+    "knowledge" | "review" | "history" | "requests" | "documents"
   >("knowledge");
   const [items, setItems] = useState<KnowledgeItem[]>([]);
   const [history, setHistory] = useState<HistoryConversation[]>([]);
   const [knowledgeGaps, setKnowledgeGaps] = useState<KnowledgeGap[]>([]);
+  const [meterCorrections, setMeterCorrections] = useState<
+    MeterCorrectionRequest[]
+  >([]);
   const [gapSetupRequired, setGapSetupRequired] = useState(false);
   const [activeGapId, setActiveGapId] = useState<string | null>(null);
   const [form, setForm] = useState<KnowledgeForm>(EMPTY_FORM);
@@ -210,6 +227,7 @@ export default function AdminPage() {
   const [reviewIndex, setReviewIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [requestsLoading, setRequestsLoading] = useState(false);
   const [documentLoading, setDocumentLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -303,6 +321,26 @@ export default function AdminPage() {
     }
   }, [apiRequest]);
 
+  const loadMeterCorrections = useCallback(async () => {
+    setRequestsLoading(true);
+    setError("");
+
+    try {
+      const data = await apiRequest<{
+        requests: MeterCorrectionRequest[];
+      }>("/api/admin/meter-corrections");
+      setMeterCorrections(data.requests);
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Не удалось загрузить заявки";
+      setError(message);
+    } finally {
+      setRequestsLoading(false);
+    }
+  }, [apiRequest]);
+
   useEffect(() => {
     const checkUser = async () => {
       const {
@@ -316,10 +354,11 @@ export default function AdminPage() {
 
       await loadKnowledge();
       await loadHistory();
+      await loadMeterCorrections();
     };
 
     void checkUser();
-  }, [loadHistory, loadKnowledge, router]);
+  }, [loadHistory, loadKnowledge, loadMeterCorrections, router]);
 
   const categoryStats = useMemo(() => {
     return CATEGORIES.map((category) => {
@@ -640,6 +679,34 @@ export default function AdminPage() {
     }
   };
 
+  const updateMeterCorrectionStatus = async (
+    request: MeterCorrectionRequest,
+    status: MeterCorrectionRequest["status"]
+  ) => {
+    setError("");
+
+    try {
+      await apiRequest("/api/admin/meter-corrections", {
+        method: "PATCH",
+        body: JSON.stringify({
+          id: request.id,
+          status,
+        }),
+      });
+      setMeterCorrections((prev) =>
+        prev.map((item) =>
+          item.id === request.id ? { ...item, status } : item
+        )
+      );
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Не удалось обновить статус заявки";
+      setError(message);
+    }
+  };
+
   const analyzeDocument = async () => {
     if (!documentFile) {
       setError("Загрузи PDF-файл для анализа.");
@@ -767,6 +834,19 @@ export default function AdminPage() {
             }`}
           >
             История вопросов
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab("requests");
+              void loadMeterCorrections();
+            }}
+            className={`h-10 rounded-md px-4 text-sm font-semibold ${
+              activeTab === "requests"
+                ? "bg-blue-600 text-white"
+                : "text-neutral-600 hover:bg-neutral-50"
+            }`}
+          >
+            Заявки ({meterCorrections.length})
           </button>
           <button
             onClick={() => setActiveTab("review")}
@@ -1296,6 +1376,150 @@ export default function AdminPage() {
                       </button>
                     </div>
                   </aside>
+                </div>
+              )}
+            </section>
+          </>
+        ) : activeTab === "requests" ? (
+          <>
+            <section className="mb-5 grid gap-3 md:grid-cols-4">
+              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+                <div className="text-sm text-neutral-500">Новые</div>
+                <div className="mt-2 text-3xl font-semibold">
+                  {
+                    meterCorrections.filter((item) => item.status === "new")
+                      .length
+                  }
+                </div>
+              </div>
+              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+                <div className="text-sm text-neutral-500">В работе</div>
+                <div className="mt-2 text-3xl font-semibold">
+                  {
+                    meterCorrections.filter(
+                      (item) => item.status === "in_progress"
+                    ).length
+                  }
+                </div>
+              </div>
+              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+                <div className="text-sm text-neutral-500">Закрыто</div>
+                <div className="mt-2 text-3xl font-semibold">
+                  {
+                    meterCorrections.filter((item) => item.status === "done")
+                      .length
+                  }
+                </div>
+              </div>
+              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+                <div className="text-sm text-neutral-500">Всего</div>
+                <div className="mt-2 text-3xl font-semibold">
+                  {meterCorrections.length}
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-lg border border-neutral-200 bg-white">
+              <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="font-semibold">
+                    Заявки на корректировку показаний
+                  </h2>
+                  <p className="mt-1 text-sm text-neutral-500">
+                    Заявки, которые бот собрал из диалога с абонентом.
+                  </p>
+                </div>
+                <button
+                  onClick={() => void loadMeterCorrections()}
+                  className="h-10 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50"
+                >
+                  Обновить
+                </button>
+              </div>
+
+              {requestsLoading ? (
+                <div className="p-4 text-sm text-neutral-500">
+                  Загружаю заявки...
+                </div>
+              ) : meterCorrections.length === 0 ? (
+                <div className="p-4 text-sm text-neutral-500">
+                  Заявок пока нет. После диалога о корректировке они появятся
+                  здесь.
+                </div>
+              ) : (
+                <div className="divide-y divide-neutral-200">
+                  {meterCorrections.map((request) => (
+                    <article key={request.id} className="p-4">
+                      <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <div className="mb-2 flex flex-wrap items-center gap-2">
+                            <span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
+                              {request.request_number}
+                            </span>
+                            <span className="rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600">
+                              {request.status}
+                            </span>
+                            <span className="rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600">
+                              {formatDate(request.created_at)}
+                            </span>
+                          </div>
+                          <h3 className="font-semibold">
+                            ЛС {request.account_number} · счетчик{" "}
+                            {request.meter_number}
+                          </h3>
+                          <p className="mt-1 text-sm text-neutral-600">
+                            Правильные показания: {request.correct_reading}
+                          </p>
+                          <p className="mt-1 text-sm text-neutral-600">
+                            Контакт: {request.contact}
+                          </p>
+                          {request.service_type && (
+                            <p className="mt-1 text-sm text-neutral-600">
+                              Услуга: {request.service_type}
+                            </p>
+                          )}
+                          {request.reason && (
+                            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-neutral-500">
+                              {request.reason}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() =>
+                              void updateMeterCorrectionStatus(
+                                request,
+                                "in_progress"
+                              )
+                            }
+                            className="h-9 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50"
+                          >
+                            В работу
+                          </button>
+                          <button
+                            onClick={() =>
+                              void updateMeterCorrectionStatus(request, "done")
+                            }
+                            className="h-9 rounded-md border border-emerald-200 px-3 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+                          >
+                            Закрыть
+                          </button>
+                          <button
+                            onClick={() =>
+                              void updateMeterCorrectionStatus(
+                                request,
+                                "rejected"
+                              )
+                            }
+                            className="h-9 rounded-md border border-red-200 px-3 text-sm font-medium text-red-700 hover:bg-red-50"
+                          >
+                            Отклонить
+                          </button>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
                 </div>
               )}
             </section>
