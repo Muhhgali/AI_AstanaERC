@@ -10,6 +10,7 @@ type ChatMessage = {
   content: string;
   source?: string;
   feedback?: "up" | "down";
+  supplierCard?: SupplierManagerCard;
 };
 
 type ChatResponse = {
@@ -17,6 +18,17 @@ type ChatResponse = {
   source?: string;
   conversationId?: string;
   messageId?: string;
+  supplierCard?: SupplierManagerCard;
+};
+
+type SupplierManagerCard = {
+  supplierName: string;
+  bin: string;
+  managerName: string;
+  managerRole: string;
+  phone: string;
+  email: string;
+  photoUrl?: string;
 };
 
 const STORAGE_MESSAGES = "astana_erc_widget_messages";
@@ -33,6 +45,16 @@ function sourceLabel(source?: string) {
   if (source === "gpt") return "AI + база";
   if (source === "error") return "Ошибка";
   return source ?? "Ответ";
+}
+
+function getInitials(name: string) {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
 }
 
 export default function WidgetPage() {
@@ -139,6 +161,7 @@ export default function WidgetPage() {
           role: "assistant",
           content: data.message ?? "Не удалось получить ответ.",
           source: data.source,
+          supplierCard: data.supplierCard,
         },
       ]);
     } catch (error) {
@@ -274,6 +297,41 @@ export default function WidgetPage() {
                       : "border border-neutral-200 bg-white text-neutral-800"
                   }`}
                 >
+                  {message.supplierCard && (
+                    <div className="mb-2 rounded-lg border border-blue-100 bg-blue-50/70 p-2.5">
+                      <div className="flex gap-2.5">
+                        {message.supplierCard.photoUrl ? (
+                          <div
+                            className="h-12 w-12 shrink-0 rounded-md bg-cover bg-center"
+                            style={{
+                              backgroundImage: `url(${message.supplierCard.photoUrl})`,
+                            }}
+                            aria-label={message.supplierCard.managerName}
+                          />
+                        ) : (
+                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-blue-600 text-xs font-semibold text-white">
+                            {getInitials(message.supplierCard.managerName)}
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <div className="text-[11px] font-medium text-blue-700">
+                            {message.supplierCard.supplierName}
+                          </div>
+                          <div className="text-sm font-semibold text-neutral-900">
+                            {message.supplierCard.managerName}
+                          </div>
+                          <div className="text-[11px] text-neutral-500">
+                            {message.supplierCard.managerRole}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-2 space-y-0.5 text-[11px] leading-5 text-neutral-700">
+                        <div>БИН: {message.supplierCard.bin}</div>
+                        <div>Телефон: {message.supplierCard.phone}</div>
+                        <div>Почта: {message.supplierCard.email}</div>
+                      </div>
+                    </div>
+                  )}
                   <p className="whitespace-pre-wrap">{message.content}</p>
                   {!isUser && (
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">

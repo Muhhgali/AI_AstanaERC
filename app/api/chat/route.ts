@@ -4,6 +4,10 @@ import { createClient } from "@supabase/supabase-js";
 import { createEmbedding } from "@/lib/embedding";
 import { searchKnowledge } from "@/lib/retrieval";
 import { getSupabaseProjectUrl } from "@/lib/supabaseEnv";
+import {
+  buildSupplierManagerMessage,
+  findSupplierManager,
+} from "@/lib/suppliers";
 
 let openai: OpenAI | null = null;
 let adminSupabase: ReturnType<typeof createClient<any>> | null = null;
@@ -282,6 +286,26 @@ export async function POST(req: Request) {
           status: 400,
         }
       );
+    }
+
+    const supplierCard = findSupplierManager(lastMessage);
+
+    if (supplierCard) {
+      const assistantMessage = buildSupplierManagerMessage(supplierCard);
+      const saved = await saveTurn({
+        conversationId,
+        userMessage: lastMessage,
+        assistantMessage,
+        source: "supplier-manager",
+      });
+
+      return Response.json({
+        message: assistantMessage,
+        source: "supplier-manager",
+        conversationId: saved.conversationId,
+        messageId: saved.messageId,
+        supplierCard,
+      });
     }
 
     // ===== CREATE QUERY EMBEDDING =====

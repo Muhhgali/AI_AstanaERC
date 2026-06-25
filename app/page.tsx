@@ -26,6 +26,7 @@ type ChatMessage = {
   content: string;
   source?: string;
   feedback?: "up" | "down";
+  supplierCard?: SupplierManagerCard;
 };
 
 type ChatResponse = {
@@ -33,6 +34,17 @@ type ChatResponse = {
   source?: string;
   conversationId?: string;
   messageId?: string;
+  supplierCard?: SupplierManagerCard;
+};
+
+type SupplierManagerCard = {
+  supplierName: string;
+  bin: string;
+  managerName: string;
+  managerRole: string;
+  phone: string;
+  email: string;
+  photoUrl?: string;
 };
 
 type SpeechRecognitionResult = {
@@ -98,8 +110,19 @@ const FEATURES = [
 function sourceLabel(source?: string) {
   if (source === "knowledge-direct") return "База знаний";
   if (source === "gpt") return "AI + база знаний";
+  if (source === "supplier-manager") return "Карточка поставщика";
   if (source === "error") return "Ошибка";
   return source ?? "Ответ";
+}
+
+function getInitials(name: string) {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
 }
 
 export default function Home() {
@@ -248,6 +271,7 @@ export default function Home() {
         role: "assistant",
         content: data.message ?? "Не удалось получить ответ.",
         source: data.source,
+        supplierCard: data.supplierCard,
       } satisfies ChatMessage;
 
       setMessages((prev) => [...prev, botMessage]);
@@ -517,6 +541,43 @@ export default function Home() {
                             : "border border-neutral-200 bg-white text-neutral-800"
                         }`}
                       >
+                        {msg.supplierCard && (
+                          <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50/60 p-3">
+                            <div className="flex gap-3">
+                              {msg.supplierCard.photoUrl ? (
+                                <div
+                                  className="h-14 w-14 shrink-0 rounded-md bg-cover bg-center"
+                                  style={{
+                                    backgroundImage: `url(${msg.supplierCard.photoUrl})`,
+                                  }}
+                                  aria-label={msg.supplierCard.managerName}
+                                />
+                              ) : (
+                                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md bg-blue-600 text-sm font-semibold text-white">
+                                  {getInitials(msg.supplierCard.managerName)}
+                                </div>
+                              )}
+                              <div className="min-w-0">
+                                <div className="text-xs font-medium text-blue-700">
+                                  {msg.supplierCard.supplierName}
+                                </div>
+                                <div className="mt-0.5 font-semibold text-neutral-900">
+                                  {msg.supplierCard.managerName}
+                                </div>
+                                <div className="text-xs text-neutral-500">
+                                  {msg.supplierCard.managerRole}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="mt-3 grid gap-1 text-xs text-neutral-700 sm:grid-cols-2">
+                              <div>БИН: {msg.supplierCard.bin}</div>
+                              <div>Телефон: {msg.supplierCard.phone}</div>
+                              <div className="sm:col-span-2">
+                                Почта: {msg.supplierCard.email}
+                              </div>
+                            </div>
+                          </div>
+                        )}
                         <p className="whitespace-pre-wrap">{msg.content}</p>
                         {!isUser && (
                           <div className="mt-3 flex flex-wrap items-center gap-2">
