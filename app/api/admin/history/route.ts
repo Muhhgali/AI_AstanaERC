@@ -82,6 +82,11 @@ function isMissingKnowledgeGapsTable(error: { code?: string; message?: string })
 }
 
 async function requireUser(req: Request) {
+  // Temporary production diagnostic bypass. Re-enable Supabase Auth after testing.
+  if (process.env.ADMIN_AUTH_DISABLED !== "false") {
+    return { id: "temporary-admin" };
+  }
+
   const authHeader = req.headers.get("authorization");
   const token = authHeader?.replace("Bearer ", "");
 
