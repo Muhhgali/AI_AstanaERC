@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 import { createEmbedding } from "@/lib/embedding";
 import { searchKnowledge } from "@/lib/retrieval";
+import { getSupabaseProjectUrl } from "@/lib/supabaseEnv";
 
 let openai: OpenAI | null = null;
 let adminSupabase: ReturnType<typeof createClient<any>> | null = null;
@@ -20,12 +21,14 @@ function getOpenAI() {
 }
 
 function getAdminSupabase() {
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  const supabaseUrl = getSupabaseProjectUrl();
+
+  if (!supabaseUrl || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
     throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
   }
 
   adminSupabase ??= createClient<any>(
-    process.env.SUPABASE_URL,
+    supabaseUrl,
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 

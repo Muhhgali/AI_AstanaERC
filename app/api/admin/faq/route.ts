@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
+import { getSupabaseAnonKey, getSupabaseProjectUrl } from "@/lib/supabaseEnv";
 
 function getOpenAI() {
   if (!process.env.OPENAI_API_KEY) {
@@ -12,13 +13,16 @@ function getOpenAI() {
 }
 
 function getSupabase() {
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
+  const supabaseUrl = getSupabaseProjectUrl();
+  const supabaseAnonKey = getSupabaseAnonKey();
+
+  if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error("Missing SUPABASE_URL or SUPABASE_ANON_KEY");
   }
 
   return createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_ANON_KEY
+    supabaseUrl,
+    supabaseAnonKey
   );
 }
 

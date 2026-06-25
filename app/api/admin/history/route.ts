@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from "@supabase/supabase-js";
+import { getSupabaseAnonKey, getSupabaseProjectUrl } from "@/lib/supabaseEnv";
 
 type ChatConversation = {
   id: string;
@@ -36,10 +37,8 @@ let authClient: ReturnType<typeof createClient<any>> | null = null;
 let adminClient: ReturnType<typeof createClient<any>> | null = null;
 
 function getAuthClient() {
-  const supabaseUrl =
-    process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey =
-    process.env.SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const supabaseUrl = getSupabaseProjectUrl();
+  const supabaseAnonKey = getSupabaseAnonKey();
 
   if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error("Missing SUPABASE_URL or SUPABASE_ANON_KEY");
@@ -54,12 +53,14 @@ function getAuthClient() {
 }
 
 function getAdminClient() {
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  const supabaseUrl = getSupabaseProjectUrl();
+
+  if (!supabaseUrl || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
     throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
   }
 
   adminClient ??= createClient<any>(
-    process.env.SUPABASE_URL,
+    supabaseUrl,
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 

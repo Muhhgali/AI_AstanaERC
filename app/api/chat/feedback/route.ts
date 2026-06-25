@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from "@supabase/supabase-js";
+import { getSupabaseProjectUrl } from "@/lib/supabaseEnv";
 
 type FeedbackPayload = {
   messageId?: string;
@@ -9,12 +10,14 @@ type FeedbackPayload = {
 let supabase: ReturnType<typeof createClient<any>> | null = null;
 
 function getSupabase() {
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  const supabaseUrl = getSupabaseProjectUrl();
+
+  if (!supabaseUrl || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
     throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
   }
 
   supabase ??= createClient<any>(
-    process.env.SUPABASE_URL,
+    supabaseUrl,
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
