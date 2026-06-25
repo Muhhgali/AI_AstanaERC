@@ -64,6 +64,7 @@ type MeterCorrectionRequest = {
   correct_reading: string;
   contact: string;
   service_type: string | null;
+  comment: string | null;
   reason: string | null;
   status: "new" | "in_progress" | "done" | "rejected";
   created_at: string;
@@ -1476,6 +1477,11 @@ export default function AdminPage() {
                           {request.service_type && (
                             <p className="mt-1 text-sm text-neutral-600">
                               Услуга: {request.service_type}
+                            </p>
+                          )}
+                          {request.comment && (
+                            <p className="mt-1 text-sm text-neutral-600">
+                              Комментарий: {request.comment}
                             </p>
                           )}
                           {request.reason && (

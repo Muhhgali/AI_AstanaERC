@@ -50,6 +50,7 @@ create table if not exists public.meter_correction_requests (
   correct_reading text not null,
   contact text not null,
   service_type text,
+  comment text,
   reason text,
   raw_text text,
   status text not null default 'new' check (status in ('new', 'in_progress', 'done', 'rejected')),

@@ -4,7 +4,17 @@ export type MeterCorrectionDraft = {
   meterNumber?: string;
   correctReading?: string;
   contact?: string;
+  comment?: string;
   reason?: string;
+};
+
+export type MeterCorrectionFormPayload = {
+  accountNumber?: string;
+  serviceType?: string;
+  meterNumber?: string;
+  correctReading?: string;
+  contact?: string;
+  comment?: string;
 };
 
 export type MeterCorrectionRequest = Required<
@@ -13,12 +23,41 @@ export type MeterCorrectionRequest = Required<
     "accountNumber" | "serviceType" | "meterNumber" | "correctReading" | "contact"
   >
 > &
-  Pick<MeterCorrectionDraft, "reason"> & {
+  Pick<MeterCorrectionDraft, "comment" | "reason"> & {
     rawText: string;
   };
 
-const SERVICE_OPTIONS =
-  "электроэнергия, холодная вода, горячая вода, подогрев воды или газ";
+export const METER_CORRECTION_SERVICE_OPTIONS = [
+  {
+    value: "electricity_astana_rek",
+    label: "Электроэнергия",
+    provider: "АстанаРЭК",
+  },
+  {
+    value: "cold_water_astana_su",
+    label: "Холодная вода",
+    provider: "Астана Су Арнасы",
+  },
+  {
+    value: "hot_water_astana_su",
+    label: "Горячая вода",
+    provider: "Астана Су Арнасы",
+  },
+  {
+    value: "water_heating_teplotranzit",
+    label: "Подогрев воды",
+    provider: "Теплотранзит",
+  },
+  {
+    value: "gas_central",
+    label: "Газ",
+    provider: "Центральное газоснабжение",
+  },
+] as const;
+
+const SERVICE_OPTIONS_TEXT = METER_CORRECTION_SERVICE_OPTIONS.map(
+  (option) => `${option.label} (${option.provider})`
+).join(", ");
 
 const INTENT_WORDS = [
   "исправ",
@@ -39,6 +78,14 @@ function normalize(text: string) {
   return text.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+export function getMeterCorrectionServiceLabel(value: string) {
+  const option = METER_CORRECTION_SERVICE_OPTIONS.find(
+    (item) => item.value === value
+  );
+
+  return option ? `${option.label} - ${option.provider}` : value;
+}
+
 export function isMeterCorrectionIntent(text: string) {
   const normalized = normalize(text);
 
@@ -55,7 +102,7 @@ export function inferServiceType(text: string) {
   const normalized = normalize(text);
 
   if (normalized.includes("электр") || normalized.includes("свет")) {
-    return "электроэнергия";
+    return "electricity_astana_rek";
   }
 
   if (
@@ -63,11 +110,11 @@ export function inferServiceType(text: string) {
     normalized.includes("подогрев воды") ||
     normalized.includes("нагрев")
   ) {
-    return "подогрев воды";
+    return "water_heating_teplotranzit";
   }
 
   if (normalized.includes("горяч") || normalized.includes("гвс")) {
-    return "горячая вода";
+    return "hot_water_astana_su";
   }
 
   if (
@@ -75,11 +122,11 @@ export function inferServiceType(text: string) {
     normalized.includes("хвс") ||
     normalized.includes("вода")
   ) {
-    return "холодная вода";
+    return "cold_water_astana_su";
   }
 
   if (normalized.includes("газ")) {
-    return "газ";
+    return "gas_central";
   }
 
   return undefined;
@@ -133,6 +180,7 @@ export function extractMeterCorrectionDraft(text: string): MeterCorrectionDraft 
   const correctReading =
     findAfterLabel(text, [
       "правильные показания",
+      "верные показания",
       "показания",
       "должно быть",
       "надо поставить",
@@ -161,6 +209,7 @@ export function mergeMeterCorrectionDrafts(messages: { content?: string }[]) {
       meterNumber: acc.meterNumber ?? draft.meterNumber,
       correctReading: acc.correctReading ?? draft.correctReading,
       contact: acc.contact ?? draft.contact,
+      comment: acc.comment ?? draft.comment,
       reason: draft.reason || acc.reason,
     };
   }, {});
@@ -170,29 +219,45 @@ export function getMissingMeterCorrectionFields(draft: MeterCorrectionDraft) {
   const missing = [];
 
   if (!draft.accountNumber) missing.push("лицевой счёт");
-  if (!draft.serviceType) {
-    missing.push(`вид услуги или счётчика (${SERVICE_OPTIONS})`);
-  }
+  if (!draft.serviceType) missing.push("вид услуги");
   if (!draft.meterNumber) missing.push("номер счётчика или прибора учёта");
-  if (!draft.correctReading) missing.push("правильные показания");
+  if (!draft.correctReading) missing.push("верные показания");
   if (!draft.contact) missing.push("телефон или email для связи");
 
   return missing;
 }
 
-export function buildMeterCorrectionQuestion(missing: string[]) {
+export function validateMeterCorrectionForm(form: MeterCorrectionFormPayload) {
+  const draft = {
+    accountNumber: form.accountNumber?.trim(),
+    serviceType: form.serviceType?.trim(),
+    meterNumber: form.meterNumber?.trim(),
+    correctReading: form.correctReading?.trim(),
+    contact: form.contact?.trim(),
+    comment: form.comment?.trim(),
+  };
+  const missing = getMissingMeterCorrectionFields(draft);
+
+  return {
+    draft,
+    missing,
+  };
+}
+
+export function buildMeterCorrectionQuestion(_missing?: string[]) {
+  void _missing;
+
   return [
-    "Чтобы создать заявку на корректировку показаний, нужно уточнить:",
-    ...missing.map((field) => `- ${field}`),
-    "",
-    "Удобно отправить одним сообщением: лицевой счёт, вид услуги, номер счётчика, правильные показания и телефон или email для связи.",
-    `Вид услуги можно указать так: ${SERVICE_OPTIONS}.`,
+    "Заполните форму заявки на корректировку показаний.",
+    "Обязательные поля: лицевой счёт, вид услуги, номер счётчика, верные показания и телефон или email для связи.",
+    `Вид услуги выберите из списка: ${SERVICE_OPTIONS_TEXT}.`,
+    "Комментарий можно оставить дополнительно.",
   ].join("\n");
 }
 
 export function buildMeterCorrectionCreatedMessage(requestNumber: string) {
   return [
     `Заявка на корректировку показаний создана: ${requestNumber}.`,
-    "Специалист проверит лицевой счёт, вид услуги, номер счётчика и правильные показания, затем свяжется по указанному телефону или email.",
+    "Специалист проверит данные и свяжется по указанному телефону или email.",
   ].join("\n");
 }

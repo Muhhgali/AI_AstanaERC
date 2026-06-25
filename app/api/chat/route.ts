@@ -8,8 +8,12 @@ import {
   buildMeterCorrectionCreatedMessage,
   buildMeterCorrectionQuestion,
   getMissingMeterCorrectionFields,
+  getMeterCorrectionServiceLabel,
   isMeterCorrectionIntent,
+  METER_CORRECTION_SERVICE_OPTIONS,
+  MeterCorrectionFormPayload,
   mergeMeterCorrectionDrafts,
+  validateMeterCorrectionForm,
 } from "@/lib/meterCorrection";
 import {
   buildSupplierManagerMessage,
@@ -271,7 +275,10 @@ async function createMeterCorrectionRequest(params: {
       meter_number: params.draft.meterNumber,
       correct_reading: params.draft.correctReading,
       contact: params.draft.contact,
-      service_type: params.draft.serviceType,
+      service_type: params.draft.serviceType
+        ? getMeterCorrectionServiceLabel(params.draft.serviceType)
+        : params.draft.serviceType,
+      comment: params.draft.comment,
       reason: params.draft.reason ?? params.rawText,
       raw_text: params.rawText,
     });
@@ -292,7 +299,8 @@ function isMissingMeterCorrectionTable(error: unknown) {
 
   return (
     maybeError.code === "PGRST205" ||
-    Boolean(maybeError.message?.includes("meter_correction_requests"))
+    Boolean(maybeError.message?.includes("meter_correction_requests")) ||
+    Boolean(maybeError.message?.includes("comment"))
   );
 }
 
@@ -335,7 +343,87 @@ export async function POST(req: Request) {
       );
     }
 
+    const submittedMeterCorrection =
+      typeof body?.meterCorrection === "object" && body.meterCorrection
+        ? (body.meterCorrection as MeterCorrectionFormPayload)
+        : null;
     const userMessages = messages.filter((message) => message.role === "user");
+
+    if (submittedMeterCorrection) {
+      const { draft, missing } = validateMeterCorrectionForm(
+        submittedMeterCorrection
+      );
+
+      if (missing.length > 0) {
+        return Response.json(
+          {
+            message: `Заполните обязательные поля: ${missing.join(", ")}.`,
+          },
+          { status: 400 }
+        );
+      }
+
+      let assistantMessage = "";
+      let source = "meter-correction-created";
+
+      try {
+        assistantMessage = buildMeterCorrectionCreatedMessage(
+          await createMeterCorrectionRequest({
+            conversationId,
+            draft,
+            rawText: [
+              ...userMessages.map((message) => message.content),
+              `Форма корректировки: ${JSON.stringify(draft)}`,
+            ].join("\n"),
+          })
+        );
+      } catch (error) {
+        if (!isMissingMeterCorrectionTable(error)) {
+          throw error;
+        }
+
+        assistantMessage =
+          "Данные формы собраны, но таблица заявок ещё не настроена. Администратору нужно выполнить scripts/chatHistory.sql в Supabase SQL Editor.";
+        source = "meter-correction-setup-required";
+      }
+
+      const saved = await saveTurn({
+        conversationId,
+        userMessage: "Отправлена форма корректировки показаний",
+        assistantMessage,
+        source,
+      });
+
+      return Response.json({
+        message: assistantMessage,
+        source,
+        conversationId: saved.conversationId,
+        messageId: saved.messageId,
+      });
+    }
+
+    if (isMeterCorrectionIntent(lastMessage)) {
+      const meterCorrectionDraft = mergeMeterCorrectionDrafts(userMessages);
+      const assistantMessage = buildMeterCorrectionQuestion();
+      const saved = await saveTurn({
+        conversationId,
+        userMessage: lastMessage,
+        assistantMessage,
+        source: "meter-correction-form",
+      });
+
+      return Response.json({
+        message: assistantMessage,
+        source: "meter-correction-form",
+        conversationId: saved.conversationId,
+        messageId: saved.messageId,
+        meterCorrectionForm: {
+          values: meterCorrectionDraft,
+          serviceOptions: METER_CORRECTION_SERVICE_OPTIONS,
+        },
+      });
+    }
+
     const meterCorrectionDraft = mergeMeterCorrectionDrafts(userMessages);
     const meterCorrectionActive =
       isMeterCorrectionIntent(lastMessage) ||

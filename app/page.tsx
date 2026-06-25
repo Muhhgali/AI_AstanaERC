@@ -27,6 +27,7 @@ type ChatMessage = {
   source?: string;
   feedback?: "up" | "down";
   supplierCard?: SupplierManagerCard;
+  meterCorrectionForm?: MeterCorrectionForm;
 };
 
 type ChatResponse = {
@@ -35,6 +36,7 @@ type ChatResponse = {
   conversationId?: string;
   messageId?: string;
   supplierCard?: SupplierManagerCard;
+  meterCorrectionForm?: MeterCorrectionForm;
 };
 
 type SupplierManagerCard = {
@@ -45,6 +47,26 @@ type SupplierManagerCard = {
   phone: string;
   email: string;
   photoUrl?: string;
+};
+
+type MeterCorrectionValues = {
+  accountNumber?: string;
+  serviceType?: string;
+  meterNumber?: string;
+  correctReading?: string;
+  contact?: string;
+  comment?: string;
+};
+
+type MeterCorrectionServiceOption = {
+  value: string;
+  label: string;
+  provider: string;
+};
+
+type MeterCorrectionForm = {
+  values?: MeterCorrectionValues;
+  serviceOptions: MeterCorrectionServiceOption[];
 };
 
 type SpeechRecognitionResult = {
@@ -123,6 +145,137 @@ function getInitials(name: string) {
     .map((part) => part[0])
     .join("")
     .toUpperCase();
+}
+
+function MeterCorrectionFormCard({
+  form,
+  disabled,
+  onSubmit,
+}: {
+  form: MeterCorrectionForm;
+  disabled: boolean;
+  onSubmit: (values: MeterCorrectionValues) => Promise<boolean>;
+}) {
+  const [values, setValues] = useState<MeterCorrectionValues>({
+    accountNumber: form.values?.accountNumber ?? "",
+    serviceType: form.values?.serviceType ?? "",
+    meterNumber: form.values?.meterNumber ?? "",
+    correctReading: form.values?.correctReading ?? "",
+    contact: form.values?.contact ?? "",
+    comment: form.values?.comment ?? "",
+  });
+  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState("");
+
+  const requiredMissing =
+    !values.accountNumber?.trim() ||
+    !values.serviceType?.trim() ||
+    !values.meterNumber?.trim() ||
+    !values.correctReading?.trim() ||
+    !values.contact?.trim();
+
+  const updateValue = (key: keyof MeterCorrectionValues, value: string) => {
+    setValues((prev) => ({ ...prev, [key]: value }));
+    setError("");
+  };
+
+  const submit = async () => {
+    if (requiredMissing) {
+      setError("Заполните обязательные поля.");
+      return;
+    }
+
+    const sent = await onSubmit(values);
+    setSubmitted(sent);
+  };
+
+  return (
+    <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50/60 p-3">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-neutral-600">
+            Лицевой счёт *
+          </span>
+          <input
+            value={values.accountNumber}
+            onChange={(event) => updateValue("accountNumber", event.target.value)}
+            className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+          />
+        </label>
+
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-neutral-600">
+            Вид услуги *
+          </span>
+          <select
+            value={values.serviceType}
+            onChange={(event) => updateValue("serviceType", event.target.value)}
+            className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+          >
+            <option value="">Выберите услугу</option>
+            {form.serviceOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label} - {option.provider}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-neutral-600">
+            Номер счётчика *
+          </span>
+          <input
+            value={values.meterNumber}
+            onChange={(event) => updateValue("meterNumber", event.target.value)}
+            className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+          />
+        </label>
+
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-neutral-600">
+            Верные показания *
+          </span>
+          <input
+            value={values.correctReading}
+            onChange={(event) => updateValue("correctReading", event.target.value)}
+            className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+          />
+        </label>
+
+        <label className="block sm:col-span-2">
+          <span className="mb-1 block text-xs font-medium text-neutral-600">
+            Телефон или email для связи *
+          </span>
+          <input
+            value={values.contact}
+            onChange={(event) => updateValue("contact", event.target.value)}
+            className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+          />
+        </label>
+
+        <label className="block sm:col-span-2">
+          <span className="mb-1 block text-xs font-medium text-neutral-600">
+            Комментарий
+          </span>
+          <textarea
+            value={values.comment}
+            onChange={(event) => updateValue("comment", event.target.value)}
+            className="min-h-20 w-full resize-y rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-600"
+          />
+        </label>
+      </div>
+
+      <button
+        onClick={() => void submit()}
+        disabled={disabled || submitted}
+        className="mt-3 h-10 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-300"
+      >
+        {submitted ? "Заявка отправлена" : "Отправить заявку"}
+      </button>
+      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+    </div>
+  );
 }
 
 export default function Home() {
@@ -272,6 +425,7 @@ export default function Home() {
         content: data.message ?? "Не удалось получить ответ.",
         source: data.source,
         supplierCard: data.supplierCard,
+        meterCorrectionForm: data.meterCorrectionForm,
       } satisfies ChatMessage;
 
       setMessages((prev) => [...prev, botMessage]);
@@ -286,6 +440,73 @@ export default function Home() {
           source: "error",
         },
       ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitMeterCorrection = async (values: MeterCorrectionValues) => {
+    if (loading) return false;
+
+    const userMessage = {
+      role: "user",
+      content: "Отправлена форма корректировки показаний",
+    } satisfies ChatMessage;
+    const updated = [...messages, userMessage];
+
+    setMessages(updated);
+    setLoading(true);
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          conversationId,
+          messages: updated.map(({ role, content }) => ({
+            role,
+            content,
+          })),
+          meterCorrection: values,
+        }),
+      });
+
+      const data = (await res.json()) as ChatResponse;
+
+      if (!res.ok) {
+        throw new Error(data.message ?? "Не удалось отправить заявку.");
+      }
+
+      if (data.conversationId) {
+        setConversationId(data.conversationId);
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: data.messageId,
+          role: "assistant",
+          content: data.message ?? "Заявка отправлена.",
+          source: data.source,
+        },
+      ]);
+      return true;
+    } catch (error) {
+      console.error("METER CORRECTION ERROR:", error);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content:
+            error instanceof Error
+              ? error.message
+              : "Не удалось отправить заявку.",
+          source: "error",
+        },
+      ]);
+      return false;
     } finally {
       setLoading(false);
     }
@@ -579,6 +800,13 @@ export default function Home() {
                           </div>
                         )}
                         <p className="whitespace-pre-wrap">{msg.content}</p>
+                        {!isUser && msg.meterCorrectionForm && (
+                          <MeterCorrectionFormCard
+                            form={msg.meterCorrectionForm}
+                            disabled={loading}
+                            onSubmit={submitMeterCorrection}
+                          />
+                        )}
                         {!isUser && (
                           <div className="mt-3 flex flex-wrap items-center gap-2">
                             {msg.source && (

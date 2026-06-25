@@ -73,7 +73,7 @@ export async function GET(req: Request) {
   const { data, error } = await getAdminClient()
     .from("meter_correction_requests")
     .select(
-      "id,request_number,account_number,meter_number,correct_reading,contact,service_type,reason,status,created_at,updated_at"
+      "id,request_number,account_number,meter_number,correct_reading,contact,service_type,comment,reason,status,created_at,updated_at"
     )
     .order("created_at", { ascending: false })
     .limit(100);

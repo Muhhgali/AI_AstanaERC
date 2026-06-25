@@ -11,6 +11,7 @@ type ChatMessage = {
   source?: string;
   feedback?: "up" | "down";
   supplierCard?: SupplierManagerCard;
+  meterCorrectionForm?: MeterCorrectionForm;
 };
 
 type ChatResponse = {
@@ -19,6 +20,7 @@ type ChatResponse = {
   conversationId?: string;
   messageId?: string;
   supplierCard?: SupplierManagerCard;
+  meterCorrectionForm?: MeterCorrectionForm;
 };
 
 type SupplierManagerCard = {
@@ -29,6 +31,26 @@ type SupplierManagerCard = {
   phone: string;
   email: string;
   photoUrl?: string;
+};
+
+type MeterCorrectionValues = {
+  accountNumber?: string;
+  serviceType?: string;
+  meterNumber?: string;
+  correctReading?: string;
+  contact?: string;
+  comment?: string;
+};
+
+type MeterCorrectionServiceOption = {
+  value: string;
+  label: string;
+  provider: string;
+};
+
+type MeterCorrectionForm = {
+  values?: MeterCorrectionValues;
+  serviceOptions: MeterCorrectionServiceOption[];
 };
 
 const STORAGE_MESSAGES = "astana_erc_widget_messages";
@@ -55,6 +77,106 @@ function getInitials(name: string) {
     .map((part) => part[0])
     .join("")
     .toUpperCase();
+}
+
+function MeterCorrectionFormCard({
+  form,
+  disabled,
+  onSubmit,
+}: {
+  form: MeterCorrectionForm;
+  disabled: boolean;
+  onSubmit: (values: MeterCorrectionValues) => Promise<boolean>;
+}) {
+  const [values, setValues] = useState<MeterCorrectionValues>({
+    accountNumber: form.values?.accountNumber ?? "",
+    serviceType: form.values?.serviceType ?? "",
+    meterNumber: form.values?.meterNumber ?? "",
+    correctReading: form.values?.correctReading ?? "",
+    contact: form.values?.contact ?? "",
+    comment: form.values?.comment ?? "",
+  });
+  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState("");
+
+  const requiredMissing =
+    !values.accountNumber?.trim() ||
+    !values.serviceType?.trim() ||
+    !values.meterNumber?.trim() ||
+    !values.correctReading?.trim() ||
+    !values.contact?.trim();
+
+  const updateValue = (key: keyof MeterCorrectionValues, value: string) => {
+    setValues((prev) => ({ ...prev, [key]: value }));
+    setError("");
+  };
+
+  const submit = async () => {
+    if (requiredMissing) {
+      setError("Заполните обязательные поля.");
+      return;
+    }
+
+    const sent = await onSubmit(values);
+    setSubmitted(sent);
+  };
+
+  return (
+    <div className="mt-2 rounded-lg border border-blue-100 bg-blue-50/70 p-2.5">
+      <div className="space-y-2">
+        <input
+          value={values.accountNumber}
+          onChange={(event) => updateValue("accountNumber", event.target.value)}
+          placeholder="Лицевой счёт *"
+          className="h-9 w-full rounded-md border border-neutral-300 bg-white px-2 text-xs outline-none focus:border-blue-600"
+        />
+        <select
+          value={values.serviceType}
+          onChange={(event) => updateValue("serviceType", event.target.value)}
+          className="h-9 w-full rounded-md border border-neutral-300 bg-white px-2 text-xs outline-none focus:border-blue-600"
+        >
+          <option value="">Вид услуги *</option>
+          {form.serviceOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label} - {option.provider}
+            </option>
+          ))}
+        </select>
+        <input
+          value={values.meterNumber}
+          onChange={(event) => updateValue("meterNumber", event.target.value)}
+          placeholder="Номер счётчика *"
+          className="h-9 w-full rounded-md border border-neutral-300 bg-white px-2 text-xs outline-none focus:border-blue-600"
+        />
+        <input
+          value={values.correctReading}
+          onChange={(event) => updateValue("correctReading", event.target.value)}
+          placeholder="Верные показания *"
+          className="h-9 w-full rounded-md border border-neutral-300 bg-white px-2 text-xs outline-none focus:border-blue-600"
+        />
+        <input
+          value={values.contact}
+          onChange={(event) => updateValue("contact", event.target.value)}
+          placeholder="Телефон или email *"
+          className="h-9 w-full rounded-md border border-neutral-300 bg-white px-2 text-xs outline-none focus:border-blue-600"
+        />
+        <textarea
+          value={values.comment}
+          onChange={(event) => updateValue("comment", event.target.value)}
+          placeholder="Комментарий"
+          className="min-h-16 w-full resize-y rounded-md border border-neutral-300 bg-white px-2 py-2 text-xs outline-none focus:border-blue-600"
+        />
+      </div>
+      <button
+        onClick={() => void submit()}
+        disabled={disabled || submitted}
+        className="mt-2 h-9 w-full rounded-md bg-blue-600 px-3 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-300"
+      >
+        {submitted ? "Заявка отправлена" : "Отправить заявку"}
+      </button>
+      {error && <p className="mt-1.5 text-xs text-red-600">{error}</p>}
+    </div>
+  );
 }
 
 export default function WidgetPage() {
@@ -162,6 +284,7 @@ export default function WidgetPage() {
           content: data.message ?? "Не удалось получить ответ.",
           source: data.source,
           supplierCard: data.supplierCard,
+          meterCorrectionForm: data.meterCorrectionForm,
         },
       ]);
     } catch (error) {
@@ -175,6 +298,73 @@ export default function WidgetPage() {
           source: "error",
         },
       ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitMeterCorrection = async (values: MeterCorrectionValues) => {
+    if (loading) return false;
+
+    const userMessage = {
+      role: "user",
+      content: "Отправлена форма корректировки показаний",
+    } satisfies ChatMessage;
+    const updated = [...messages, userMessage];
+
+    setMessages(updated);
+    setLoading(true);
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          conversationId,
+          messages: updated.map(({ role, content }) => ({
+            role,
+            content,
+          })),
+          meterCorrection: values,
+        }),
+      });
+
+      const data = (await res.json()) as ChatResponse;
+
+      if (!res.ok) {
+        throw new Error(data.message ?? "Не удалось отправить заявку.");
+      }
+
+      if (data.conversationId) {
+        setConversationId(data.conversationId);
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: data.messageId,
+          role: "assistant",
+          content: data.message ?? "Заявка отправлена.",
+          source: data.source,
+        },
+      ]);
+      return true;
+    } catch (error) {
+      console.error("WIDGET METER CORRECTION ERROR:", error);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content:
+            error instanceof Error
+              ? error.message
+              : "Не удалось отправить заявку.",
+          source: "error",
+        },
+      ]);
+      return false;
     } finally {
       setLoading(false);
     }
@@ -333,6 +523,13 @@ export default function WidgetPage() {
                     </div>
                   )}
                   <p className="whitespace-pre-wrap">{message.content}</p>
+                  {!isUser && message.meterCorrectionForm && (
+                    <MeterCorrectionFormCard
+                      form={message.meterCorrectionForm}
+                      disabled={loading}
+                      onSubmit={submitMeterCorrection}
+                    />
+                  )}
                   {!isUser && (
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       {message.source && (
