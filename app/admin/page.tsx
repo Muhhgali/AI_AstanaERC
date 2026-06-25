@@ -221,7 +221,7 @@ export default function AdminPage() {
       data: { session },
     } = await supabase.auth.getSession();
 
-    return session?.access_token ?? "temporary-admin";
+    return session?.access_token ?? null;
   }, []);
 
   const apiRequest = useCallback(
@@ -304,13 +304,22 @@ export default function AdminPage() {
   }, [apiRequest]);
 
   useEffect(() => {
-    const loadAdminData = async () => {
+    const checkUser = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        router.push("/login");
+        return;
+      }
+
       await loadKnowledge();
       await loadHistory();
     };
 
-    void loadAdminData();
-  }, [loadHistory, loadKnowledge]);
+    void checkUser();
+  }, [loadHistory, loadKnowledge, router]);
 
   const categoryStats = useMemo(() => {
     return CATEGORIES.map((category) => {
