@@ -372,6 +372,7 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-2">
+            {false && (
             <Link
               href="/admin"
               className="flex h-10 w-10 items-center justify-center rounded-md border border-neutral-300 text-neutral-700 hover:bg-neutral-50"
@@ -380,6 +381,7 @@ export default function Home() {
             >
               <Settings size={17} />
             </Link>
+            )}
 
             <button
               onClick={clearChat}
