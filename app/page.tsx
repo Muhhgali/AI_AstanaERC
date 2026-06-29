@@ -5,10 +5,8 @@ import {
   ArrowDown,
   ArrowUp,
   Bot,
-  CheckCircle2,
   ClipboardList,
   Download,
-  FileText,
   History,
   Languages,
   Mic,
@@ -16,7 +14,6 @@ import {
   RefreshCw,
   Search,
   Settings,
-  ShieldCheck,
   Sparkles,
   Square,
   ThumbsDown,
@@ -260,24 +257,6 @@ const GUIDED_SCENARIOS = [
     title: "Поставщик",
     text: "найти менеджера по организации, коду или БИН",
     prompt: "Как найти менеджера поставщика?",
-  },
-];
-
-const FEATURES = [
-  {
-    icon: ShieldCheck,
-    title: "Отвечает по базе",
-    text: "Если данных не хватает, не придумывает и показывает контакты.",
-  },
-  {
-    icon: Search,
-    title: "Ведет дальше",
-    text: "После ответа предлагает аккуратные следующие вопросы.",
-  },
-  {
-    icon: FileText,
-    title: "Принимает заявки",
-    text: "Обращение, запись к руководству и корректировка показаний.",
   },
 ];
 
@@ -885,14 +864,6 @@ export default function Home() {
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
 
   const hasMessages = messages.length > 0;
-
-  const lastSource = useMemo(() => {
-    const assistantMessages = messages.filter(
-      (message) => message.role === "assistant"
-    );
-
-    return sourceLabel(assistantMessages.at(-1)?.source);
-  }, [messages]);
 
   const knownConversationIds = useMemo(() => {
     return Array.from(
@@ -1731,8 +1702,8 @@ export default function Home() {
 
   return (
     <main className="min-h-screen overflow-y-auto bg-[#eef4fb] text-neutral-950">
-      <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-4 lg:px-6">
-        <header className="mb-4 flex shrink-0 items-center justify-between rounded-lg border border-white/70 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
+      <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-3 lg:px-6">
+        <header className="mb-3 flex shrink-0 items-center justify-between rounded-lg border border-white/70 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
           <div className="flex min-w-0 items-center gap-3">
             <BrandMark size="md" variant="full" />
             <div className="min-w-0">
@@ -1784,7 +1755,7 @@ export default function Home() {
           </div>
         </header>
 
-        <div className="grid flex-1 gap-4 lg:grid-cols-[320px_1fr]">
+        <div className="grid flex-1 gap-3 lg:grid-cols-[320px_1fr]">
           <aside className="hidden flex-col gap-4 lg:flex">
             <section className="surface-panel rounded-lg border border-white/70 p-4">
               <div className="mb-3 flex items-center gap-2">
@@ -1866,43 +1837,9 @@ export default function Home() {
               </div>
             </section>
 
-            <section className="surface-panel rounded-lg border border-white/70 p-4">
-              <h2 className="mb-3 font-semibold">Как отвечает бот</h2>
-              <div className="space-y-4">
-                {FEATURES.map((feature) => {
-                  const Icon = feature.icon;
-
-                  return (
-                    <div key={feature.title} className="flex gap-3">
-                      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-neutral-100 text-neutral-700">
-                        <Icon size={17} />
-                      </div>
-                      <div>
-                        <div className="text-sm font-medium">
-                          {feature.title}
-                        </div>
-                        <p className="mt-1 text-sm leading-5 text-neutral-500">
-                          {feature.text}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-
-            <section className="rounded-lg border border-emerald-200 bg-emerald-50/90 p-4 shadow-sm">
-              <div className="flex items-center gap-2 text-sm font-semibold text-emerald-800">
-                <CheckCircle2 size={17} />
-                История и Knowledge подключены
-              </div>
-              <p className="mt-2 text-sm leading-5 text-emerald-800/80">
-                Последний источник: {lastSource}
-              </p>
-            </section>
           </aside>
 
-          <section className="surface-panel relative flex h-[78vh] min-h-[600px] flex-col overflow-hidden rounded-lg border border-white/70 lg:h-[82vh]">
+          <section className="surface-panel relative flex h-[calc(100vh-6.5rem)] min-h-[560px] flex-col overflow-hidden rounded-lg border border-white/70">
             <div className="border-b border-neutral-200 px-4 py-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
@@ -2112,7 +2049,7 @@ export default function Home() {
             <div
               ref={chatScrollRef}
               onScroll={updateChatScrollState}
-              className="app-scrollbar min-h-0 flex-1 overflow-y-auto bg-[linear-gradient(#ffffff,#f8fbff)] px-4 py-5"
+              className="app-scrollbar min-h-0 flex-1 overflow-y-auto bg-[linear-gradient(#ffffff,#f8fbff)] px-4 py-4"
             >
               <div ref={topRef} />
               {!hasMessages && (
@@ -2463,7 +2400,7 @@ export default function Home() {
               </div>
             )}
 
-            <div className="shrink-0 border-t border-neutral-200 bg-white/95 p-4 backdrop-blur">
+            <div className="shrink-0 border-t border-neutral-200 bg-white/95 px-4 py-3 backdrop-blur">
               <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-lg border border-neutral-300 bg-white p-2 shadow-sm transition focus-within:border-blue-500 focus-within:shadow-md">
                 <input
                   ref={receiptInputRef}
@@ -2536,9 +2473,6 @@ export default function Home() {
                   <ArrowUp size={18} />
                 </button>
               </div>
-              <p className="mx-auto mt-2 max-w-3xl text-xs text-neutral-400">
-                Enter отправляет сообщение, Shift+Enter переносит строку.
-              </p>
             </div>
           </section>
         </div>

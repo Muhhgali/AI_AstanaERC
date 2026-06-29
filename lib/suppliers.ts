@@ -39,6 +39,8 @@ export type SupplierManagerCard = {
   photoUrl?: string;
 };
 
+const HIDDEN_PUBLIC_VALUE = "Скрыто в публичном чате";
+
 const SUPPLIERS = suppliers as SupplierRecord[];
 
 const ORG_TYPE_TOKENS = new Set([
@@ -309,41 +311,51 @@ export function buildSupplierManagerMessage(
 ) {
   if (language === "kk") {
     return [
-      `Астана-ЕРЦ менеджері: ${card.managerName}`,
-      `Менеджер телефоны: ${card.managerPhone || "көрсетілмеген"}`,
-      `Менеджер поштасы: ${card.managerEmail || "көрсетілмеген"}`,
-      "",
       `Жабдықтаушы: ${card.supplierName}`,
       `Код: ${card.supplierCode}`,
       `БСН: ${card.bin || "көрсетілмеген"}`,
-      card.contract ? `Шарт: ${card.contract}` : "",
       card.category ? `Санат: ${card.category}` : "",
       card.district ? `Аудан: ${card.district}` : "",
       "",
-      card.contactName ? `Жабдықтаушы байланысы: ${card.contactName}` : "",
-      card.supplierPhone ? `Жабдықтаушы телефоны: ${card.supplierPhone}` : "",
-      card.supplierEmail ? `Жабдықтаушы поштасы: ${card.supplierEmail}` : "",
+      "Менеджердің байланыстары, шарт деректері және жеткізушінің жеке байланыстары публичті чатта көрсетілмейді.",
+      "Байланысу немесе нақтылау қажет болса, 109 нөміріне жүгініңіз.",
     ]
       .filter(Boolean)
       .join("\n");
   }
 
   return [
-    `Менеджер Астана-ЕРЦ: ${card.managerName}`,
-    `Телефон менеджера: ${card.managerPhone || "не указан"}`,
-    `Почта менеджера: ${card.managerEmail || "не указана"}`,
-    "",
     `Поставщик: ${card.supplierName}`,
     `Код поставщика: ${card.supplierCode}`,
     `БИН: ${card.bin || "не указан"}`,
-    card.contract ? `Договор: ${card.contract}` : "",
     card.category ? `Категория: ${card.category}` : "",
     card.district ? `Район: ${card.district}` : "",
     "",
-    card.contactName ? `Контакт поставщика: ${card.contactName}` : "",
-    card.supplierPhone ? `Телефон поставщика: ${card.supplierPhone}` : "",
-    card.supplierEmail ? `Почта поставщика: ${card.supplierEmail}` : "",
+    "Контакты менеджера, договор, контактное лицо поставщика, телефон и почта поставщика не показываются в публичном чате.",
+    "Для связи или уточнения обратитесь через 109.",
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+export function toPublicSupplierManagerCard(
+  card: SupplierManagerCard
+): SupplierManagerCard {
+  return {
+    supplierName: card.supplierName,
+    bin: card.bin,
+    managerName: HIDDEN_PUBLIC_VALUE,
+    managerRole: card.managerRole,
+    phone: "",
+    email: "",
+    managerPhone: "",
+    managerEmail: "",
+    supplierPhone: "",
+    supplierEmail: "",
+    supplierCode: card.supplierCode,
+    category: card.category,
+    district: card.district,
+    contactName: "",
+    contract: "",
+  };
 }

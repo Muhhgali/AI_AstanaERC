@@ -18,6 +18,7 @@ import {
 import {
   buildSupplierManagerMessage,
   findSupplierManager,
+  toPublicSupplierManagerCard,
 } from "@/lib/suppliers";
 
 let openai: OpenAI | null = null;
@@ -71,6 +72,7 @@ type SupportCard = {
 };
 
 type ChatLanguage = "ru" | "kk";
+type SmallTalkIntent = "greeting" | "thanks" | "goodbye" | "capabilities";
 
 const DIRECT_MATCH_THRESHOLD = 0.72;
 const MIN_CONTEXT_THRESHOLD = 0.62;
@@ -394,6 +396,155 @@ function normalizeRu(text: string) {
 
 function uniqueQuestions(questions: string[]) {
   return Array.from(new Set(questions)).slice(0, 3);
+}
+
+function hasBusinessSignal(question: string) {
+  const normalized = normalizeRu(question);
+
+  return [
+    "епд",
+    "квитанц",
+    "оплат",
+    "кас",
+    "kaspi",
+    "платеж",
+    "начисл",
+    "долг",
+    "пен",
+    "счет",
+    "счетчик",
+    "показан",
+    "лицев",
+    "адрес",
+    "телефон",
+    "контакт",
+    "офис",
+    "график",
+    "заяв",
+    "обращ",
+    "жалоб",
+    "оператор",
+    "справк",
+    "поставщик",
+    "услуг",
+    "коммун",
+    "төлем",
+    "түбіртек",
+    "шот",
+    "көрсеткіш",
+    "есептегіш",
+    "өтініш",
+    "қызмет",
+  ].some((word) => normalized.includes(word));
+}
+
+function detectSmallTalkIntent(question: string): SmallTalkIntent | null {
+  const normalized = normalizeRu(question).trim();
+  const compact = normalized.replace(/[!?.,"\s]+/g, " ").trim();
+  const words = compact ? compact.split(" ") : [];
+
+  if (!compact || hasBusinessSignal(compact) || words.length > 6) {
+    return null;
+  }
+
+  if (
+    [
+      "привет",
+      "здравствуй",
+      "здравствуйте",
+      "добрый день",
+      "доброе утро",
+      "добрый вечер",
+      "салам",
+      "сәлем",
+      "салем",
+      "hello",
+      "hi",
+      "как дела",
+      "как ты",
+      "қалайсың",
+    ].some((phrase) => compact === phrase || compact.startsWith(`${phrase} `))
+  ) {
+    return "greeting";
+  }
+
+  if (
+    [
+      "спасибо",
+      "благодарю",
+      "рахмет",
+      "спс",
+      "thanks",
+      "thank you",
+    ].some((phrase) => compact === phrase || compact.startsWith(`${phrase} `))
+  ) {
+    return "thanks";
+  }
+
+  if (
+    [
+      "пока",
+      "до свидания",
+      "увидимся",
+      "сау бол",
+      "bye",
+    ].some((phrase) => compact === phrase || compact.startsWith(`${phrase} `))
+  ) {
+    return "goodbye";
+  }
+
+  if (
+    [
+      "что ты умеешь",
+      "чем поможешь",
+      "кто ты",
+      "ты кто",
+      "что умеет бот",
+      "как пользоваться ботом",
+      "как ты можешь помочь",
+      "не істей аласың",
+      "сен кімсің",
+    ].some((phrase) => compact.includes(phrase))
+  ) {
+    return "capabilities";
+  }
+
+  return null;
+}
+
+function buildSmallTalkAnswer(
+  intent: SmallTalkIntent,
+  language: ChatLanguage
+) {
+  if (language === "kk") {
+    if (intent === "thanks") {
+      return "Рақмет! Тағы сұрағыңыз болса, жазыңыз. ЕПД, төлем, түбіртек, көрсеткіштер немесе өтініш бойынша көмектесемін.";
+    }
+
+    if (intent === "goodbye") {
+      return "Сау болыңыз! Қажет болса, қайта жазыңыз - көмектесуге дайынмын.";
+    }
+
+    if (intent === "capabilities") {
+      return "Мен Астана ЕРЦ бойынша көмектесемін: ЕПД, төлем, түбіртек, дербес шот, көрсеткіштер, өтініштер және жеткізушілер туралы сұрақтарға жауап беремін. Сұрағыңызды қысқаша жазыңыз.";
+    }
+
+    return "Сәлеметсіз бе! Мен Астана ЕРЦ бойынша көмекшімін. ЕПД, төлем, түбіртек, дербес шот, көрсеткіштер немесе өтініш бойынша сұрағыңызды жазыңыз.";
+  }
+
+  if (intent === "thanks") {
+    return "Пожалуйста! Если появится ещё вопрос, напишите. Помогу с ЕПД, оплатой, квитанциями, показаниями, лицевым счётом или обращениями.";
+  }
+
+  if (intent === "goodbye") {
+    return "До свидания! Если понадобится помощь по Астана ЕРЦ, просто напишите.";
+  }
+
+  if (intent === "capabilities") {
+    return "Я помощник Астана ЕРЦ. Могу подсказать по ЕПД, оплате, квитанциям, лицевому счёту, показаниям, обращениям и поставщикам услуг. Напишите вопрос коротко, и я постараюсь ответить по базе знаний.";
+  }
+
+  return "Здравствуйте! Я помощник Астана ЕРЦ. Напишите вопрос по ЕПД, оплате, квитанции, лицевому счёту, показаниям или обращению - помогу разобраться.";
 }
 
 function isTechnicalSupportQuestion(question: string) {
@@ -726,6 +877,142 @@ function buildKaspiPaymentAnswer(language: ChatLanguage) {
   return "Да, ЕПД можно оплатить через Kaspi Bank. При оплате проверьте лицевой счет и сумму из квитанции, чтобы платеж корректно зачелся.";
 }
 
+function isEpdDefinitionIntent(question: string) {
+  const normalized = normalizeRu(question);
+
+  return (
+    normalized.includes("епд") &&
+    [
+      "что такое",
+      "что значит",
+      "расшифр",
+      "зачем",
+      "единый платеж",
+      "единый платёж",
+      "деген не",
+      "не үшін",
+    ].some((phrase) => normalized.includes(phrase))
+  );
+}
+
+function buildEpdDefinitionAnswer(language: ChatLanguage) {
+  if (language === "kk") {
+    return [
+      "ЕПД - бірнеше коммуналдық және басқа қызметтерді бір түбіртекке біріктіретін бірыңғай төлем құжаты.",
+      "Ол тұрғындарға төлемдерді бір жерден көруге және ыңғайлы төлеуге көмектеседі.",
+      "ЕПД-ны электронды түрде алуға немесе қағаз түбіртектен бас тартуға болады.",
+    ].join("\n");
+  }
+
+  return [
+    "ЕПД - это единый платежный документ: одна квитанция, где объединены коммунальные и другие услуги для удобства жителей.",
+    "По нему можно видеть начисления и оплачивать услуги в одном месте.",
+    "ЕПД можно получать в электронном виде, а от бумажной квитанции можно отказаться.",
+  ].join("\n");
+}
+
+function isMeterReadingSubmissionIntent(question: string) {
+  const normalized = normalizeRu(question);
+  const hasMeter =
+    normalized.includes("показан") ||
+    normalized.includes("счетчик") ||
+    normalized.includes("счетчик") ||
+    normalized.includes("прибор") ||
+    normalized.includes("көрсеткіш") ||
+    normalized.includes("есептегіш") ||
+    normalized.includes("санауыш");
+  const hasSubmitIntent = [
+    "передать",
+    "сдать",
+    "отправить",
+    "куда",
+    "как",
+    "қалай",
+    "қайда",
+    "жібер",
+    "беру",
+  ].some((phrase) => normalized.includes(phrase));
+  const hasCorrectionIntent = [
+    "исправ",
+    "коррект",
+    "ошиб",
+    "неверн",
+    "неправильн",
+    "не приняли",
+    "не попали",
+    "түзет",
+    "қате",
+    "дұрыс емес",
+  ].some((phrase) => normalized.includes(phrase));
+
+  return hasMeter && hasSubmitIntent && !hasCorrectionIntent;
+}
+
+function buildMeterReadingSubmissionAnswer(language: ChatLanguage) {
+  if (language === "kk") {
+    return [
+      "Көрсеткіштерді Астана ЕРЦ сайтындағы бөлім арқылы беруге болады: https://www.aerc.kz/ru/abonentam/readings/.",
+      "Базадағы ақпарат бойынша көрсеткіштер айдың 10-ынан 30/31-іне дейін қабылданады.",
+      "Теплотранзит бойынша көрсеткіштер 15-інен бастап қабылданады.",
+    ].join("\n");
+  }
+
+  return [
+    "Показания можно передать на сайте Астана ЕРЦ: https://www.aerc.kz/ru/abonentam/readings/.",
+    "По данным базы, передача показаний доступна с 10 числа месяца по 30/31 число.",
+    "По Теплотранзиту показания принимаются с 15 числа.",
+  ].join("\n");
+}
+
+function isSupplierManagerLookupHelpIntent(question: string) {
+  const normalized = normalizeRu(question);
+  const hasSupplierContext = [
+    "поставщик",
+    "поставщика",
+    "менеджер",
+    "менеджера",
+    "куратор",
+    "ответственный",
+    "бин",
+    "код",
+    "договор",
+    "жабдықтаушы",
+    "жеткізуші",
+    "менеджері",
+    "бсн",
+  ].some((phrase) => normalized.includes(phrase));
+  const hasHowToIntent = [
+    "как",
+    "найти",
+    "узнать",
+    "показать",
+    "подскажи",
+    "что нужно",
+    "қалай",
+    "қайдан",
+    "табу",
+    "көрсет",
+  ].some((phrase) => normalized.includes(phrase));
+
+  return hasSupplierContext && hasHowToIntent;
+}
+
+function buildSupplierManagerLookupHelpAnswer(language: ChatLanguage) {
+  if (language === "kk") {
+    return [
+      "Менеджерді табу үшін жеткізушінің атауын, БСН-н немесе жеткізуші кодын жазыңыз.",
+      "Мысалы: «код поставщика 1201», «БИН 123456789012» немесе ұйымның атауы.",
+      "Егер жеткізуші базада болса, бот Астана-ЕРЦ менеджерін және қолжетімді байланыс деректерін көрсетеді.",
+    ].join("\n");
+  }
+
+  return [
+    "Чтобы найти менеджера поставщика, напишите название организации, БИН или код поставщика.",
+    "Например: «код поставщика 1201», «БИН 123456789012» или название КСК/ОСИ/ТОО.",
+    "Если поставщик есть в базе, бот покажет менеджера Астана-ЕРЦ и доступные контакты.",
+  ].join("\n");
+}
+
 function buildOperatorHandoffAnswer(language: ChatLanguage) {
   if (language === "kk") {
     return [
@@ -844,6 +1131,18 @@ function buildSuggestedQuestions(params: {
     return params.language === "kk"
       ? ["Кодпен табу", "Жабдықтаушы байланысы", "Менің менеджерім"]
       : ["Найти по коду", "Контакты поставщика", "Мой менеджер"];
+  }
+
+  if (params.source === "supplier-lookup-help") {
+    return params.language === "kk"
+      ? ["Кодпен табу", "БСН бойынша іздеу", "Жеткізуші атауы"]
+      : ["Найти по коду", "Поиск по БИН", "Название поставщика"];
+  }
+
+  if (params.source === "small-talk") {
+    return params.language === "kk"
+      ? ["ЕПД деген не?", "Төлем қалай жасалады?", "Көрсеткіш беру"]
+      : ["Что такое ЕПД?", "Как оплатить?", "Передать показания"];
   }
 
   if (params.source?.startsWith("meter-correction")) {
@@ -1187,6 +1486,81 @@ export async function POST(req: Request) {
       });
     }
 
+    const smallTalkIntent = detectSmallTalkIntent(lastMessage);
+
+    if (smallTalkIntent) {
+      const assistantMessage = buildSmallTalkAnswer(
+        smallTalkIntent,
+        responseLanguage
+      );
+      const saved = await saveTurn({
+        conversationId,
+        visitorId,
+        userMessage: lastMessage,
+        assistantMessage,
+        source: "small-talk",
+      });
+
+      return Response.json({
+        message: assistantMessage,
+        source: "small-talk",
+        conversationId: saved.conversationId,
+        messageId: saved.messageId,
+        suggestedQuestions: buildSuggestedQuestions({
+          question: lastMessage,
+          source: "small-talk",
+          language: responseLanguage,
+        }),
+      });
+    }
+
+    if (isEpdDefinitionIntent(lastMessage)) {
+      const assistantMessage = buildEpdDefinitionAnswer(responseLanguage);
+      const saved = await saveTurn({
+        conversationId,
+        visitorId,
+        userMessage: lastMessage,
+        assistantMessage,
+        source: "epd-guidance",
+      });
+
+      return Response.json({
+        message: assistantMessage,
+        source: "epd-guidance",
+        conversationId: saved.conversationId,
+        messageId: saved.messageId,
+        suggestedQuestions: buildSuggestedQuestions({
+          question: lastMessage,
+          source: "epd-guidance",
+          language: responseLanguage,
+        }),
+      });
+    }
+
+    if (isMeterReadingSubmissionIntent(lastMessage)) {
+      const assistantMessage =
+        buildMeterReadingSubmissionAnswer(responseLanguage);
+      const saved = await saveTurn({
+        conversationId,
+        visitorId,
+        userMessage: lastMessage,
+        assistantMessage,
+        source: "meter-reading-guidance",
+      });
+
+      return Response.json({
+        message: assistantMessage,
+        source: "meter-reading-guidance",
+        conversationId: saved.conversationId,
+        messageId: saved.messageId,
+        suggestedQuestions: buildSuggestedQuestions({
+          question: lastMessage,
+          source: "meter-reading-guidance",
+          language: responseLanguage,
+        }),
+      });
+    }
+
     if (isKaspiPaymentIntent(lastMessage)) {
       const assistantMessage = buildKaspiPaymentAnswer(responseLanguage);
       const saved = await saveTurn({
@@ -1391,8 +1765,9 @@ export async function POST(req: Request) {
     const supplierCard = findSupplierManager(lastMessage);
 
     if (supplierCard) {
+      const publicSupplierCard = toPublicSupplierManagerCard(supplierCard);
       const assistantMessage = buildSupplierManagerMessage(
-        supplierCard,
+        publicSupplierCard,
         responseLanguage
       );
       const saved = await saveTurn({
@@ -1413,7 +1788,31 @@ export async function POST(req: Request) {
           source: "supplier-manager",
           language: responseLanguage,
         }),
-        supplierCard,
+        supplierCard: publicSupplierCard,
+      });
+    }
+
+    if (isSupplierManagerLookupHelpIntent(lastMessage)) {
+      const assistantMessage =
+        buildSupplierManagerLookupHelpAnswer(responseLanguage);
+      const saved = await saveTurn({
+        conversationId,
+        visitorId,
+        userMessage: lastMessage,
+        assistantMessage,
+        source: "supplier-lookup-help",
+      });
+
+      return Response.json({
+        message: assistantMessage,
+        source: "supplier-lookup-help",
+        conversationId: saved.conversationId,
+        messageId: saved.messageId,
+        suggestedQuestions: buildSuggestedQuestions({
+          question: lastMessage,
+          source: "supplier-lookup-help",
+          language: responseLanguage,
+        }),
       });
     }
 

@@ -115,7 +115,6 @@ const INTENT_WORDS = [
   "жібере алма",
   "бере алма",
   "көп",
-  "аз",
 ];
 
 function normalize(text: string) {
