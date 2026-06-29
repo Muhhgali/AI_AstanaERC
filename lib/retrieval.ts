@@ -19,6 +19,14 @@ export type KnowledgeSearchResult = KnowledgeRow & {
 
 const DEBUG_RETRIEVAL =
   process.env.DEBUG_RETRIEVAL === "true";
+const KNOWLEDGE_CACHE_TTL_MS = 5 * 60 * 1000;
+
+let knowledgeCache:
+  | {
+      loadedAt: number;
+      rows: (KnowledgeRow & { embedding: number[] })[];
+    }
+  | null = null;
 
 function cosineSimilarity(a: number[], b: number[]) {
   if (!a?.length || !b?.length) {
@@ -110,40 +118,56 @@ function priorityBoost(item: KnowledgeRow) {
   return normalizedPriority / 1000 + (item.verified ? 0.08 : 0);
 }
 
+async function loadKnowledgeRows() {
+  if (
+    knowledgeCache &&
+    Date.now() - knowledgeCache.loadedAt < KNOWLEDGE_CACHE_TTL_MS
+  ) {
+    return knowledgeCache.rows;
+  }
+
+  const { data, error } = await supabase
+    .from("knowledge")
+    .select("id,title,category,content,embedding,priority,verified,source");
+
+  if (error) {
+    console.error("SUPABASE ERROR:", error);
+    return [];
+  }
+
+  const rows = ((data ?? []) as KnowledgeRow[])
+    .map((item) => ({
+      ...item,
+      embedding: parseEmbedding(item.embedding),
+    }))
+    .filter(
+      (item): item is KnowledgeRow & { embedding: number[] } =>
+        Array.isArray(item.embedding) &&
+        item.embedding.length > 0 &&
+        Boolean(item.content)
+    );
+
+  knowledgeCache = {
+    loadedAt: Date.now(),
+    rows,
+  };
+
+  return rows;
+}
+
 export async function searchKnowledge(
   queryEmbedding: number[],
   queryText = ""
 ) {
   try {
-    const { data, error } = await supabase
-      .from("knowledge")
-      .select("*");
+    const valid = await loadKnowledgeRows();
 
-    if (error) {
-      console.error("SUPABASE ERROR:", error);
-      return [];
-    }
-
-    if (!data || data.length === 0) {
+    if (valid.length === 0) {
       if (DEBUG_RETRIEVAL) {
         console.log("KNOWLEDGE TABLE EMPTY");
       }
       return [];
     }
-
-    const valid = (data as KnowledgeRow[])
-      .map((item) => ({
-        ...item,
-        embedding: parseEmbedding(item.embedding),
-      }))
-      .filter(
-        (
-          item
-        ): item is KnowledgeRow & { embedding: number[] } =>
-          Array.isArray(item.embedding) &&
-          item.embedding.length > 0 &&
-          Boolean(item.content)
-      );
 
     const scored: KnowledgeSearchResult[] = valid.map(
       (item) => {
