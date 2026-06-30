@@ -21,139 +21,23 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BrandMark } from "@/components/BrandMark";
-
-type ChatMessage = {
-  id?: string;
-  role: "user" | "assistant";
-  content: string;
-  source?: string;
-  feedback?: "up" | "down";
-  supplierCard?: SupplierManagerCard;
-  meterCorrectionForm?: MeterCorrectionForm;
-  suggestedQuestions?: string[];
-  supportCard?: SupportCard;
-  appealForm?: boolean;
-  appointmentForm?: boolean;
-  operatorHandoff?: OperatorHandoff;
-};
-
-type ChatResponse = {
-  message?: string;
-  source?: string;
-  conversationId?: string;
-  messageId?: string;
-  supplierCard?: SupplierManagerCard;
-  meterCorrectionForm?: MeterCorrectionForm;
-  suggestedQuestions?: string[];
-  supportCard?: SupportCard;
-  appealForm?: boolean;
-  appointmentForm?: boolean;
-  operatorHandoff?: OperatorHandoff;
-};
-
-type HistoryMessage = {
-  id?: string;
-  role: "user" | "assistant";
-  content: string;
-  source?: string;
-  feedback?: "up" | "down";
-  created_at?: string;
-};
-
-type HistoryConversation = {
-  id: string;
-  title: string;
-  created_at: string;
-  updated_at: string;
-  messages: HistoryMessage[];
-};
-
-type StoredConversationSummary = {
-  id: string;
-  title: string;
-  preview: string;
-  updatedAt: string;
-};
-
-type RequestStatusItem = {
-  id: string;
-  type: "meter" | "appeal" | "appointment";
-  title: string;
-  detail?: string;
-  status: string;
-  conversationId?: string;
-  createdAt: string;
-  updatedAt?: string;
-  time?: string;
-};
-
-type ChatLanguage = "ru" | "kk";
-
-type OperatorHandoff = {
-  id: string;
-  status: string;
-  created_at: string;
-};
-
-type SupplierManagerCard = {
-  supplierName: string;
-  bin: string;
-  managerName: string;
-  managerRole: string;
-  phone: string;
-  email: string;
-  managerPhone?: string;
-  managerEmail?: string;
-  supplierPhone?: string;
-  supplierEmail?: string;
-  photoUrl?: string;
-};
-
-type MeterCorrectionValues = {
-  accountNumber?: string;
-  serviceType?: string;
-  meterNumber?: string;
-  correctReading?: string;
-  contact?: string;
-  comment?: string;
-};
-
-type MeterCorrectionServiceOption = {
-  value: string;
-  label: string;
-  provider: string;
-};
-
-type MeterCorrectionForm = {
-  values?: MeterCorrectionValues;
-  serviceOptions: MeterCorrectionServiceOption[];
-};
-
-type SupportCard = {
-  title: string;
-  description: string;
-  contactLabel: string;
-  contactValue: string;
-  note?: string;
-  href?: string;
-};
-
-type AppealRequestValues = {
-  name: string;
-  topic: string;
-  message: string;
-  contact: string;
-  files: File[];
-};
-
-type AppointmentRequestValues = {
-  firstName: string;
-  lastName: string;
-  leader: "general_director" | "deputy_director";
-  date: string;
-  phone: string;
-  email: string;
-};
+import type {
+  ChatMessage,
+  ChatResponse,
+  HistoryMessage,
+  HistoryConversation,
+  StoredConversationSummary,
+  RequestStatusItem,
+  ChatLanguage,
+  OperatorHandoff,
+  SupplierManagerCard,
+  MeterCorrectionValues,
+  MeterCorrectionServiceOption,
+  MeterCorrectionForm,
+  SupportCard,
+  AppealRequestValues,
+  AppointmentRequestValues,
+} from "@/lib/types";
 
 const LEADERSHIP_OPTIONS = [
   {

@@ -327,9 +327,25 @@ export async function GET(req: Request) {
         : undefined,
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Не удалось загрузить сводку";
+    const errorInfo = {
+      timestamp: new Date().toISOString(),
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    };
 
-    return Response.json({ message }, { status: 500 });
+    console.error("DASHBOARD API ERROR:", errorInfo);
+
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Не удалось загрузить сводку. Проверьте подключение к БД.";
+
+    return Response.json(
+      { 
+        error: message,
+        ...(process.env.NODE_ENV === "development" && { details: errorInfo }),
+      },
+      { status: 500 }
+    );
   }
 }

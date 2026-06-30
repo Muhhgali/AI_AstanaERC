@@ -19,7 +19,9 @@ import {
 } from "lucide-react";
 import { BrandMark } from "@/components/BrandMark";
 import { supabase } from "@/lib/supabaseClient";
+import type { ChatLanguage, RequestCategory, RequestStatusFilter, HistoryFilter } from "@/lib/types";
 
+// Admin-specific types (not shared with other components)
 type KnowledgeItem = {
   id: string;
   title: string;
@@ -121,10 +123,6 @@ type LeadershipAppointment = {
   created_at: string;
   updated_at: string;
 };
-
-type RequestCategory = "meter" | "appeal" | "appointment";
-type RequestStatusFilter = "open" | "new" | "active" | "closed" | "all";
-type HistoryFilter = "needs_review" | "helpful" | "unrated" | "all";
 
 type SupplierItem = {
   supplierCode: number;

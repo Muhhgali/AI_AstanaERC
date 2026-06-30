@@ -25,139 +25,28 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BrandMark } from "@/components/BrandMark";
-
-type ChatMessage = {
-  id?: string;
-  role: "user" | "assistant";
-  content: string;
-  source?: string;
-  feedback?: "up" | "down";
-  supplierCard?: SupplierManagerCard;
-  meterCorrectionForm?: MeterCorrectionForm;
-  suggestedQuestions?: string[];
-  supportCard?: SupportCard;
-  appealForm?: boolean;
-  appointmentForm?: boolean;
-  operatorHandoff?: OperatorHandoff;
-};
-
-type ChatResponse = {
-  message?: string;
-  source?: string;
-  conversationId?: string;
-  messageId?: string;
-  supplierCard?: SupplierManagerCard;
-  meterCorrectionForm?: MeterCorrectionForm;
-  suggestedQuestions?: string[];
-  supportCard?: SupportCard;
-  appealForm?: boolean;
-  appointmentForm?: boolean;
-  operatorHandoff?: OperatorHandoff;
-};
-
-type HistoryMessage = {
-  id?: string;
-  role: "user" | "assistant";
-  content: string;
-  source?: string;
-  feedback?: "up" | "down";
-  created_at?: string;
-};
-
-type HistoryConversation = {
-  id: string;
-  title: string;
-  created_at: string;
-  updated_at: string;
-  messages: HistoryMessage[];
-};
-
-type StoredConversationSummary = {
-  id: string;
-  title: string;
-  preview: string;
-  updatedAt: string;
-};
-
-type RequestStatusItem = {
-  id: string;
-  type: "meter" | "appeal" | "appointment";
-  title: string;
-  detail?: string;
-  status: string;
-  conversationId?: string;
-  createdAt: string;
-  updatedAt?: string;
-  time?: string;
-};
-
-type ChatLanguage = "ru" | "kk";
-
-type OperatorHandoff = {
-  id: string;
-  status: string;
-  created_at: string;
-};
-
-type SupplierManagerCard = {
-  supplierName: string;
-  bin: string;
-  managerName: string;
-  managerRole: string;
-  phone: string;
-  email: string;
-  managerPhone?: string;
-  managerEmail?: string;
-  supplierPhone?: string;
-  supplierEmail?: string;
-  photoUrl?: string;
-};
-
-type MeterCorrectionValues = {
-  accountNumber?: string;
-  serviceType?: string;
-  meterNumber?: string;
-  correctReading?: string;
-  contact?: string;
-  comment?: string;
-};
-
-type MeterCorrectionServiceOption = {
-  value: string;
-  label: string;
-  provider: string;
-};
-
-type MeterCorrectionForm = {
-  values?: MeterCorrectionValues;
-  serviceOptions: MeterCorrectionServiceOption[];
-};
-
-type SupportCard = {
-  title: string;
-  description: string;
-  contactLabel: string;
-  contactValue: string;
-  note?: string;
-  href?: string;
-};
-
-type AppealRequestValues = {
-  name: string;
-  topic: string;
-  message: string;
-  contact: string;
-  files: File[];
-};
-
-type AppointmentRequestValues = {
-  firstName: string;
-  lastName: string;
-  leader: "general_director" | "deputy_director";
-  date: string;
-  phone: string;
-  email: string;
-};
+import type {
+  ChatMessage,
+  ChatResponse,
+  HistoryMessage,
+  HistoryConversation,
+  StoredConversationSummary,
+  RequestStatusItem,
+  ChatLanguage,
+  OperatorHandoff,
+  SupplierManagerCard,
+  MeterCorrectionValues,
+  MeterCorrectionServiceOption,
+  MeterCorrectionForm,
+  SupportCard,
+  AppealRequestValues,
+  AppointmentRequestValues,
+  SpeechRecognitionResult,
+  SpeechRecognitionEvent,
+  SpeechRecognitionInstance,
+  SpeechRecognitionConstructor,
+  SpeechWindow,
+} from "@/lib/types";
 
 const LEADERSHIP_OPTIONS = [
   {
@@ -173,38 +62,6 @@ const LEADERSHIP_OPTIONS = [
     weekday: 4,
   },
 ] as const;
-
-type SpeechRecognitionResult = {
-  readonly isFinal: boolean;
-  readonly [index: number]: {
-    readonly transcript: string;
-  };
-};
-
-type SpeechRecognitionEvent = Event & {
-  readonly results: {
-    readonly length: number;
-    readonly [index: number]: SpeechRecognitionResult;
-  };
-};
-
-type SpeechRecognitionInstance = {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onresult: ((event: SpeechRecognitionEvent) => void) | null;
-  onend: (() => void) | null;
-  onerror: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-};
-
-type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance;
-
-type SpeechWindow = Window & {
-  SpeechRecognition?: SpeechRecognitionConstructor;
-  webkitSpeechRecognition?: SpeechRecognitionConstructor;
-};
 
 const STORAGE_MESSAGES = "astana_erc_chat_messages";
 const STORAGE_CONVERSATION_ID = "astana_erc_conversation_id";
@@ -1033,7 +890,26 @@ export default function Home() {
   const sendMessage = async (text = input) => {
     const content = text.trim();
 
-    if (!content || loading) return;
+    // Input validation
+    if (!content) {
+      return; // Silent return for empty input
+    }
+
+    if (content.length > 5000) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: language === "kk" 
+            ? "Хабарлама 5000 таңбадан аспауы керек. Сұрағыңызды қысқартыңыз."
+            : "Сообщение не должно превышать 5000 символов. Сократите вопрос.",
+          source: "error",
+        },
+      ]);
+      return;
+    }
+
+    if (loading) return;
 
     const userMessage = {
       role: "user",
@@ -1051,6 +927,9 @@ export default function Home() {
     }
 
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: {
@@ -1065,12 +944,16 @@ export default function Home() {
             content,
           })),
         }),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       const data = (await res.json()) as ChatResponse;
 
       if (!res.ok) {
-        throw new Error(data.message ?? "Не удалось получить ответ.");
+        const errorMessage = data.message || "Не удалось получить ответ.";
+        throw new Error(errorMessage);
       }
 
       if (data.conversationId) {
@@ -1094,12 +977,26 @@ export default function Home() {
       setMessages((prev) => [...prev, botMessage]);
     } catch (error) {
       console.error("CHAT ERROR:", error);
+      
+      let errorMessage = "Не получилось получить ответ. Проверь подключение и попробуй еще раз.";
+      
+      if (error instanceof Error) {
+        if (error.name === "AbortError") {
+          errorMessage = language === "kk"
+            ? "Сәтсіз болды - уақыт аяқталды. Қайта ұйындаңыз."
+            : "Время ожидания истекло. Попробуйте еще раз.";
+        } else if (error.message.includes("API")) {
+          errorMessage = language === "kk"
+            ? "Сервис қызметі істемей тұр. Әкімшіге хабарлаңыз."
+            : "Сервис недоступен. Сообщите администратору.";
+        }
+      }
+      
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content:
-            "Не получилось получить ответ. Проверь подключение и попробуй еще раз.",
+          content: errorMessage,
           source: "error",
         },
       ]);
@@ -1397,6 +1294,9 @@ export default function Home() {
     setPanelLoading(true);
 
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
       const res = await fetch("/api/chat/history", {
         method: "POST",
         headers: {
@@ -1406,21 +1306,32 @@ export default function Home() {
           conversationIds: knownConversationIds,
           visitorId,
         }),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
+
       const data = (await res.json()) as {
         conversations?: HistoryConversation[];
         message?: string;
+        error?: string;
       };
 
       if (!res.ok) {
-        throw new Error(data.message ?? "Не удалось загрузить историю.");
+        const errorMessage = data.error ?? data.message ?? "Не удалось загрузить историю.";
+        throw new Error(errorMessage);
       }
 
       setHistoryConversations(data.conversations ?? []);
+      setPanelError(null); // Clear error on success
     } catch (error) {
-      setPanelError(
-        error instanceof Error ? error.message : "Не удалось загрузить историю."
-      );
+      if (error instanceof Error && error.name === "AbortError") {
+        setPanelError("Время ожидания истории истекло. Попробуйте еще раз.");
+      } else {
+        setPanelError(
+          error instanceof Error ? error.message : "Ошибка при загрузке истории. Проверьте соединение."
+        );
+      }
     } finally {
       setPanelLoading(false);
     }

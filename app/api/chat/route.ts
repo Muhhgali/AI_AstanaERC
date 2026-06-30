@@ -1229,6 +1229,83 @@ function buildLatePaymentDoubleChargeAnswer(language: ChatLanguage) {
   ].join("\n");
 }
 
+function cleanAndFormatResponse(message: string, language: ChatLanguage): string {
+  // Remove extra whitespace
+  let cleaned = message
+    .replace(/\n\n\n+/g, "\n\n") // Multiple newlines -> double newline
+    .replace(/\s+/g, " ") // Multiple spaces -> single space
+    .replace(/\n /g, "\n") // Newline + space -> just newline
+    .trim();
+
+  // Remove redundant introductions
+  const redundantStarts = language === "kk"
+    ? [
+        "Базадағы ақпарат бойынша",
+        "Астана ЕРЦ бойынша",
+        "Ақпараттар бойынша",
+        "Өтініш",
+        "Түсіндім",
+      ]
+    : [
+        "По информации из базы",
+        "По данным базы",
+        "Согласно базе",
+        "Астана ЕРЦ",
+        "Информация",
+        "Кратко",
+      ];
+
+  // If message starts with redundant phrase, try to skip it
+  for (const phrase of redundantStarts) {
+    if (cleaned.toLowerCase().startsWith(phrase.toLowerCase())) {
+      const withoutPhrase = cleaned.substring(phrase.length).trim();
+      // Only replace if result is substantial enough
+      if (withoutPhrase.length > cleaned.length * 0.7) {
+        cleaned = withoutPhrase;
+        break;
+      }
+    }
+  }
+
+  // Fix list formatting: ensure proper line breaks before bullets
+  cleaned = cleaned.replace(/([.!?])\s+([•\-\*])/g, "$1\n$2");
+  cleaned = cleaned.replace(/:\s+([•\-\*])/g, ":\n$1");
+
+  // Ensure proper sentence casing
+  const sentences = cleaned.split(/([.!?]\s+)/);
+  cleaned = sentences
+    .map((s, i) => {
+      if (i % 2 === 0 && s.length > 0) {
+        // Capitalize first letter of sentence
+        return s.charAt(0).toUpperCase() + s.slice(1);
+      }
+      return s;
+    })
+    .join("");
+
+  // Remove duplicate sentences
+  const sentences_unique = cleaned.split(/[.!?]\s+/).filter((s) => s.trim().length > 0);
+  const unique = Array.from(new Set(sentences_unique.map((s) => s.trim())));
+  
+  // If we have many duplicates removed, use unique version
+  if (unique.length < sentences_unique.length * 0.8) {
+    cleaned = unique.join(". ") + ".";
+  }
+
+  // Ensure max length (if AI got too verbose)
+  const maxLength = 800;
+  if (cleaned.length > maxLength) {
+    cleaned = cleaned.substring(0, maxLength).trim();
+    // Find last complete sentence
+    const lastDot = cleaned.lastIndexOf(".");
+    if (lastDot > maxLength * 0.7) {
+      cleaned = cleaned.substring(0, lastDot + 1);
+    }
+  }
+
+  return cleaned;
+}
+
 function buildSuggestedQuestions(params: {
   question: string;
   source?: string;
@@ -1480,55 +1557,62 @@ function isMissingMeterCorrectionTable(error: unknown) {
 
 export async function POST(req: Request) {
   try {
-    // ===== BODY =====
-    const body = await req.json().catch(() => ({}));
+    // ===== BODY PARSING WITH ERROR HANDLING =====
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch (error) {
+      return Response.json(
+        { error: "Invalid JSON in request body" },
+        { status: 400 }
+      );
+    }
 
-    const messages: ChatBodyMessage[] = Array.isArray(body?.messages)
-      ? body.messages
+    if (!body || typeof body !== "object") {
+      return Response.json(
+        { error: "Request body must be a JSON object" },
+        { status: 400 }
+      );
+    }
+
+    const bodyObj = body as Record<string, unknown>;
+    const messages: ChatBodyMessage[] = Array.isArray(bodyObj?.messages)
+      ? bodyObj.messages
       : [];
     const conversationId =
-      typeof body?.conversationId === "string"
-        ? body.conversationId
+      typeof bodyObj?.conversationId === "string"
+        ? bodyObj.conversationId
         : undefined;
     const visitorId =
-      typeof body?.visitorId === "string" && body.visitorId.length <= 120
-        ? body.visitorId
+      typeof bodyObj?.visitorId === "string" && bodyObj.visitorId.length <= 120
+        ? bodyObj.visitorId
         : undefined;
 
     if (messages.length === 0) {
       return Response.json(
-        {
-          message: "No messages provided",
-        },
-        {
-          status: 400,
-        }
+        { error: "No messages provided" },
+        { status: 400 }
       );
     }
 
-    // ===== LAST MESSAGE =====
-    const lastMessage =
-      messages[messages.length - 1]?.content;
+    // ===== LAST MESSAGE EXTRACTION =====
+    const lastMessage = messages[messages.length - 1]?.content;
 
-    if (!lastMessage) {
+    if (!lastMessage || typeof lastMessage !== "string") {
       return Response.json(
-        {
-          message: "Empty message",
-        },
-        {
-          status: 400,
-        }
+        { error: "Last message is empty or invalid" },
+        { status: 400 }
       );
     }
 
     const requestedLanguage =
-      body?.language === "kk" || body?.language === "ru"
-        ? (body.language as ChatLanguage)
+      bodyObj?.language === "kk" || bodyObj?.language === "ru"
+        ? (bodyObj.language as ChatLanguage)
         : undefined;
     const responseLanguage = requestedLanguage ?? detectChatLanguage(lastMessage);
     const submittedMeterCorrection =
-      typeof body?.meterCorrection === "object" && body.meterCorrection
-        ? (body.meterCorrection as MeterCorrectionFormPayload)
+      typeof bodyObj?.meterCorrection === "object" && bodyObj.meterCorrection
+        ? (bodyObj.meterCorrection as MeterCorrectionFormPayload)
         : null;
     const userMessages = messages.filter((message) => message.role === "user");
 
@@ -1540,7 +1624,7 @@ export async function POST(req: Request) {
       if (missing.length > 0) {
         return Response.json(
           {
-            message:
+            error:
               responseLanguage === "kk"
                 ? `Міндетті өрістерді толтырыңыз: ${missing.join(", ")}.`
                 : `Заполните обязательные поля: ${missing.join(", ")}.`,
@@ -1567,7 +1651,16 @@ export async function POST(req: Request) {
         );
       } catch (error) {
         if (!isMissingMeterCorrectionTable(error)) {
-          throw error;
+          console.error("Meter correction error:", error);
+          return Response.json(
+            {
+              error:
+                responseLanguage === "kk"
+                  ? "Форма өңдеуде қате болды. Әкімшіге хабарлаңыз."
+                  : "Ошибка при обработке формы. Сообщите администратору.",
+            },
+            { status: 500 }
+          );
         }
 
         assistantMessage =
@@ -2137,9 +2230,12 @@ export async function POST(req: Request) {
       });
     }
 
-    // ===== BUILD CONTEXT =====
-    const context = results
-      .slice(0, 5)
+    // ===== BUILD CONTEXT (отфильтровано по качеству) =====
+    const relevantResults = results
+      .filter((r) => r.similarity > MIN_CONTEXT_THRESHOLD) // Только релевантные матчи
+      .slice(0, 4); // Максимум 4 лучших результата для контекста
+
+    const context = relevantResults
       .map(
         (r) => `
 TITLE:
@@ -2151,38 +2247,48 @@ ${r.content}
       )
       .join("\n\n");
 
+    // Если нет релевантных результатов - уведомление в контексте
+    const contextOrEmpty =
+      context.trim() ||
+      (responseLanguage === "kk"
+        ? "БАЗА ЗНАНИЙ ПУСТА - бәс информация жок"
+        : "БАЗА ЗНАНИЙ ПУСТА - нет подходящей информации");
+
     // ===== GPT =====
     const completion =
       await getOpenAI().chat.completions.create({
-        model: "gpt-4.1-mini",
+        model: "gpt-4-turbo",
 
-        temperature: 0.3,
+        temperature: 0.2,
 
         messages: [
           {
             role: "system",
 
             content: `
-Ты AI помощник компании Астана ЕРЦ.
+Ты AI помощник компании Астана ЕРЦ. Ответы должны быть:
+✓ Точные, на основе только предоставленной базы
+✓ Краткие (2-5 предложений или 2-3 пункта)
+✓ На языке пользователя (${languageName(responseLanguage)})
+✓ С конкретными деталями (номера, сроки, адреса)
+✓ Структурированные (списки для нескольких пунктов)
 
-Пользователь задал последний вопрос на ${languageName(responseLanguage)}. Ответь на этом же языке.
+ПРАВИЛА:
+1. НЕ придумывай: номера, адреса, телефоны, сроки, названия организаций
+2. НЕ общайся лишне - отвечай по существу
+3. ЕСЛИ информации нет - напиши честно: "Точной информации в базе нет. Уточните вопрос" (на соответствующем языке)
+4. ЕСЛИ вопрос о технических проблемах - предложи контакт поддержки
+5. ЕСЛИ несколько вариантов ответа - приоритет: проверенная информация > свежая информация > похожая информация
+6. ЛОГИЧЕСКИЙ АНАЛИЗ: если вопрос связан с платежами или начислениями - применяй ВСЮ релевантную информацию из базы (например, если пользователь говорит о повторном начислении после оплаты, это может быть связано с поздней оплатой - применяй оба контекста)
 
-Отвечай только по информации из базы знаний ниже.
-
-Если есть несколько похожих фрагментов, в первую очередь используй проверенные и более точные.
-
-Если база знаний на русском, а пользователь спрашивает на казахском, кратко и точно перескажи найденную информацию на казахском языке. Смысл, номера, адреса и сроки не меняй.
-
-Если точного ответа в базе нет, честно скажи, что точной информации нет, и предложи уточнить вопрос.
-
-Не придумывай факты, номера телефонов, адреса, сроки или способы оплаты.
-
-Отвечай кратко: 2-5 коротких предложений или до 3 пунктов. Без повторов и лишних вступлений.
-
-Контакты и направление в поддержку добавляй только если пользователь прямо просит, куда обратиться, или вопрос явно технический.
+СТИЛЬ:
+- Для дат: четкие сроки (например: "с 10 по 25 число")
+- Для процессов: пошаговые инструкции
+- Для проблем: сначала решение, потом объяснение
+- Используй цифры, не слова ("25 число", не "двадцать пятого")
 
 БАЗА ЗНАНИЙ:
-${context}
+${contextOrEmpty}
             `.trim(),
           },
 
@@ -2190,11 +2296,14 @@ ${context}
         ],
       });
 
-    const assistantMessage =
+    const assistantMessage = cleanAndFormatResponse(
       completion.choices[0].message.content ??
-      (responseLanguage === "kk"
-        ? "Жауап алу мүмкін болмады."
-        : "Не удалось получить ответ.");
+        (responseLanguage === "kk"
+          ? "Жауап алу мүмкін болмады. Өтініш қайтаңыз."
+          : "Не удалось получить ответ. Попробуйте позже."),
+      responseLanguage
+    );
+    
     const saved = await saveTurn({
       conversationId,
       visitorId,
@@ -2243,17 +2352,27 @@ ${context}
     });
 
   } catch (err) {
-    console.error(
-      "CHAT API ERROR:",
-      err
-    );
+    // Improved error logging
+    const errorInfo = {
+      timestamp: new Date().toISOString(),
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    };
+    
+    console.error("CHAT API ERROR:", errorInfo);
 
+    // Graceful error response
+    const statusCode = err instanceof Error && err.message.includes("API key") ? 401 : 500;
+    
     return Response.json(
       {
-        message: "Internal server error",
+        error: "Failed to process request",
+        message: process.env.NODE_ENV === "development" 
+          ? (err instanceof Error ? err.message : "Unknown error")
+          : "Internal server error",
       },
       {
-        status: 500,
+        status: statusCode,
       }
     );
   }
