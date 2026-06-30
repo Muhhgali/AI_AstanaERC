@@ -136,7 +136,7 @@ export async function POST(req: Request) {
 
   return Response.json({
     draft: {
-      title: gap.topic || gap.user_question.slice(0, 90),
+      title: gap.user_question || gap.topic,
       category: inferCategory(`${gap.topic} ${gap.user_question}`),
       content: buildDraftContent(gap),
       priority: 90,

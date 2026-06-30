@@ -1229,7 +1229,7 @@ export default function AdminPage() {
 
     setForm({
       ...EMPTY_FORM,
-      title: userMessage.slice(0, 90),
+      title: userMessage,
       content: "",
       source: "history",
     });
@@ -1258,7 +1258,7 @@ export default function AdminPage() {
     } catch (err) {
       setForm({
         ...EMPTY_FORM,
-        title: gap.topic.slice(0, 90),
+        title: gap.user_question || gap.topic,
         content: "",
         source: "knowledge-gap",
         verified: true,
@@ -2246,7 +2246,7 @@ export default function AdminPage() {
 
                 <label className="mb-4 block">
                   <span className="mb-1 block text-sm font-medium text-neutral-700">
-                    Заголовок
+                    Вопрос жителя
                   </span>
                   <input
                     value={form.title}
@@ -2257,7 +2257,7 @@ export default function AdminPage() {
                       }))
                     }
                     className="h-11 w-full rounded-md border border-neutral-300 bg-white px-3 outline-none focus:border-blue-600"
-                    placeholder="Оплата через Kaspi"
+                    placeholder="Вопрос будет подставлен автоматически"
                   />
                 </label>
 
