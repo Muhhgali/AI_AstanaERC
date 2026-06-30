@@ -114,6 +114,10 @@ function getRequestTable(type: RequestType) {
   };
 }
 
+function isRequestType(value: unknown): value is RequestType {
+  return value === "meter" || value === "appeal" || value === "appointment";
+}
+
 export async function GET(req: Request) {
   const user = await requireUser(req);
 
@@ -203,7 +207,7 @@ export async function PATCH(req: Request) {
     status?: string;
   };
 
-  if (!body.type || !body.id || !body.status) {
+  if (!isRequestType(body.type) || !body.id || !body.status) {
     return Response.json(
       { message: "type, id and status are required" },
       { status: 400 }
@@ -223,6 +227,41 @@ export async function PATCH(req: Request) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", body.id);
+
+  if (error) {
+    return Response.json({ message: error.message }, { status: 500 });
+  }
+
+  return Response.json({ ok: true });
+}
+
+export async function DELETE(req: Request) {
+  const user = await requireUser(req);
+
+  if (!user) {
+    return Response.json(
+      { message: "Сессия администратора не прошла проверку." },
+      { status: 401 }
+    );
+  }
+
+  const url = new URL(req.url);
+  const body = (await req.json().catch(() => ({}))) as {
+    type?: RequestType;
+    id?: string;
+  };
+  const type = body.type ?? (url.searchParams.get("type") as RequestType | null);
+  const id = body.id ?? url.searchParams.get("id");
+
+  if (!isRequestType(type) || !id) {
+    return Response.json(
+      { message: "type and id are required" },
+      { status: 400 }
+    );
+  }
+
+  const config = getRequestTable(type);
+  const { error } = await getAdminClient().from(config.table).delete().eq("id", id);
 
   if (error) {
     return Response.json({ message: error.message }, { status: 500 });

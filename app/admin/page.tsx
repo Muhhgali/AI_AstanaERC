@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
+  Archive,
   Building2,
   CheckCircle2,
   Clock3,
@@ -123,6 +124,7 @@ type LeadershipAppointment = {
 
 type RequestCategory = "meter" | "appeal" | "appointment";
 type RequestStatusFilter = "open" | "new" | "active" | "closed" | "all";
+type HistoryFilter = "needs_review" | "helpful" | "unrated" | "all";
 
 type SupplierItem = {
   supplierCode: number;
@@ -361,6 +363,18 @@ function feedbackLabel(feedback: HistoryMessage["feedback"]) {
   return "Без оценки";
 }
 
+function hasRawMeterCorrectionTrail(value: string | null) {
+  if (!value) {
+    return false;
+  }
+
+  return (
+    value.includes("Отправлена форма корректировки показаний") ||
+    value.includes("Форма корректировки:") ||
+    value.split("\n").filter(Boolean).length > 4
+  );
+}
+
 function getInitials(name: string) {
   return name
     .split(" ")
@@ -456,6 +470,8 @@ export default function AdminPage() {
     useState<RequestCategory>("meter");
   const [activeRequestStatus, setActiveRequestStatus] =
     useState<RequestStatusFilter>("open");
+  const [activeHistoryFilter, setActiveHistoryFilter] =
+    useState<HistoryFilter>("needs_review");
   const [reviewIndex, setReviewIndex] = useState(0);
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -901,20 +917,78 @@ export default function AdminPage() {
     });
   }, [activeCategory, items, query]);
 
+  const historyBuckets = useMemo(() => {
+    const getBucket = (conversation: HistoryConversation): HistoryFilter => {
+      const assistantMessages = conversation.messages.filter(
+        (message) => message.role === "assistant"
+      );
+
+      if (assistantMessages.some((message) => message.feedback === "down")) {
+        return "needs_review";
+      }
+
+      if (assistantMessages.some((message) => message.feedback === "up")) {
+        return "helpful";
+      }
+
+      return "unrated";
+    };
+
+    return {
+      needs_review: history.filter((conversation) => getBucket(conversation) === "needs_review"),
+      helpful: history.filter((conversation) => getBucket(conversation) === "helpful"),
+      unrated: history.filter((conversation) => getBucket(conversation) === "unrated"),
+      all: history,
+    };
+  }, [history]);
+
+  const historyFilters: {
+    id: HistoryFilter;
+    label: string;
+    hint: string;
+    count: number;
+  }[] = [
+    {
+      id: "needs_review",
+      label: "Не помогло",
+      hint: "разобрать и улучшить",
+      count: historyBuckets.needs_review.length,
+    },
+    {
+      id: "helpful",
+      label: "Полезные",
+      hint: "удачные ответы",
+      count: historyBuckets.helpful.length,
+    },
+    {
+      id: "unrated",
+      label: "Без оценки",
+      hint: "нет реакции жителя",
+      count: historyBuckets.unrated.length,
+    },
+    {
+      id: "all",
+      label: "Все",
+      hint: "полная история",
+      count: historyBuckets.all.length,
+    },
+  ];
+
   const filteredHistory = useMemo(() => {
     const normalizedQuery = historyQuery.trim().toLowerCase();
+    const scopedHistory = historyBuckets[activeHistoryFilter];
 
     if (!normalizedQuery) {
-      return history;
+      return scopedHistory;
     }
 
-    return history.filter((conversation) =>
+    return scopedHistory.filter((conversation) =>
       [conversation.title, ...conversation.messages.map((m) => m.content)]
         .join(" ")
         .toLowerCase()
         .includes(normalizedQuery)
     );
-  }, [history, historyQuery]);
+  }, [activeHistoryFilter, historyBuckets, historyQuery]);
 
   const filteredKnowledgeGaps = useMemo(() => {
     const normalizedQuery = historyQuery.trim().toLowerCase();
@@ -1207,6 +1281,79 @@ export default function AdminPage() {
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Не удалось закрыть тему";
+      setError(message);
+    }
+  };
+
+  const archiveConversation = async (conversation: HistoryConversation) => {
+    const firstQuestion =
+      conversation.messages.find((message) => message.role === "user")
+        ?.content ?? conversation.title;
+    const ok = window.confirm(
+      `Убрать диалог из истории?\n\n${firstQuestion.slice(0, 120)}`
+    );
+
+    if (!ok) {
+      return;
+    }
+
+    setError("");
+
+    try {
+      await apiRequest("/api/admin/history", {
+        method: "DELETE",
+        body: JSON.stringify({
+          conversationId: conversation.id,
+        }),
+      });
+      setHistory((prev) => prev.filter((item) => item.id !== conversation.id));
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Не удалось убрать диалог";
+      setError(message);
+    }
+  };
+
+  const removeRequest = async (
+    type: RequestCategory,
+    request:
+      | MeterCorrectionRequest
+      | AppealRequest
+      | LeadershipAppointment
+  ) => {
+    const ok = window.confirm("Убрать эту заявку из рабочего списка?");
+
+    if (!ok) {
+      return;
+    }
+
+    setError("");
+
+    try {
+      await apiRequest("/api/admin/requests", {
+        method: "DELETE",
+        body: JSON.stringify({
+          type,
+          id: request.id,
+        }),
+      });
+
+      if (type === "meter") {
+        setMeterCorrections((prev) =>
+          prev.filter((item) => item.id !== request.id)
+        );
+      } else if (type === "appeal") {
+        setAppealRequests((prev) =>
+          prev.filter((item) => item.id !== request.id)
+        );
+      } else {
+        setLeadershipAppointments((prev) =>
+          prev.filter((item) => item.id !== request.id)
+        );
+      }
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Не удалось убрать заявку";
       setError(message);
     }
   };
@@ -1983,7 +2130,7 @@ export default function AdminPage() {
           </>
         ) : activeTab === "knowledge" ? (
           <>
-            <section className="mb-5 grid gap-3 md:grid-cols-4">
+            <section className="mb-5 grid gap-3 md:grid-cols-3">
               <div className="rounded-lg border border-neutral-200 bg-white p-4">
                 <div className="text-sm text-neutral-500">Всего записей</div>
                 <div className="mt-2 text-3xl font-semibold">
@@ -3207,7 +3354,7 @@ export default function AdminPage() {
           </>
         ) : activeTab === "requests" ? (
           <>
-            <section className="mb-5 grid gap-3 md:grid-cols-3">
+            <section className="mb-5 grid gap-3 md:grid-cols-4">
               {requestCategories.map((category) => (
                 <button
                   key={category.id}
@@ -3432,7 +3579,7 @@ export default function AdminPage() {
                               Комментарий: {request.comment}
                             </p>
                           )}
-                          {request.reason && (
+                          {request.reason && !hasRawMeterCorrectionTrail(request.reason) && (
                             <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-neutral-500">
                               {request.reason}
                             </p>
@@ -3469,6 +3616,13 @@ export default function AdminPage() {
                             className="h-9 rounded-md border border-red-200 px-3 text-sm font-medium text-red-700 hover:bg-red-50"
                           >
                             Отклонить
+                          </button>
+                          <button
+                            onClick={() => void removeRequest("meter", request)}
+                            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-neutral-300 px-3 text-sm font-medium text-neutral-600 hover:bg-neutral-50"
+                          >
+                            <Archive className="h-4 w-4" />
+                            Убрать
                           </button>
                         </div>
                       </div>
@@ -3547,6 +3701,13 @@ export default function AdminPage() {
                           >
                             Отклонить
                           </button>
+                          <button
+                            onClick={() => void removeRequest("appeal", request)}
+                            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-neutral-300 px-3 text-sm font-medium text-neutral-600 hover:bg-neutral-50"
+                          >
+                            <Archive className="h-4 w-4" />
+                            Убрать
+                          </button>
                         </div>
                       </div>
                     </article>
@@ -3620,6 +3781,15 @@ export default function AdminPage() {
                           >
                             Отменить
                           </button>
+                          <button
+                            onClick={() =>
+                              void removeRequest("appointment", request)
+                            }
+                            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-neutral-300 px-3 text-sm font-medium text-neutral-600 hover:bg-neutral-50"
+                          >
+                            <Archive className="h-4 w-4" />
+                            Убрать
+                          </button>
                         </div>
                       </div>
                     </article>
@@ -3630,7 +3800,7 @@ export default function AdminPage() {
           </>
         ) : activeTab === "history" ? (
           <>
-            <section className="mb-5 grid gap-3 md:grid-cols-3">
+            <section className="mb-5 grid gap-3 md:grid-cols-4">
               <div className="rounded-lg border border-neutral-200 bg-white p-4">
                 <div className="text-sm text-neutral-500">Диалогов</div>
                 <div className="mt-2 text-3xl font-semibold">
@@ -3727,7 +3897,9 @@ export default function AdminPage() {
               <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <h2 className="font-semibold">История вопросов</h2>
-                  <p className="mt-1 text-sm text-neutral-500">Диалоги, оценки и источники ответов.</p>
+                  <p className="mt-1 text-sm text-neutral-500">
+                    Диалоги, оценки и источники ответов по категориям.
+                  </p>
                 </div>
                 <div className="flex gap-2">
                   <input
@@ -3745,6 +3917,32 @@ export default function AdminPage() {
                 </div>
               </div>
 
+              <div className="grid gap-2 border-b border-neutral-200 bg-neutral-50 p-4 md:grid-cols-4">
+                {historyFilters.map((filter) => (
+                  <button
+                    key={filter.id}
+                    onClick={() => setActiveHistoryFilter(filter.id)}
+                    className={`rounded-md border p-3 text-left transition ${
+                      activeHistoryFilter === filter.id
+                        ? "border-blue-600 bg-white shadow-sm"
+                        : "border-neutral-200 bg-white/70 hover:border-blue-200"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-semibold">
+                        {filter.label}
+                      </span>
+                      <span className="rounded-md bg-neutral-100 px-2 py-1 text-xs font-semibold text-neutral-700">
+                        {filter.count}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-xs text-neutral-500">
+                      {filter.hint}
+                    </div>
+                  </button>
+                ))}
+              </div>
+
               {historyLoading ? (
                 <div className="p-4 text-sm text-neutral-500">Загружаю историю...</div>
               ) : filteredHistory.length === 0 ? (
@@ -3755,60 +3953,107 @@ export default function AdminPage() {
                     const firstQuestion = conversation.messages.find(
                       (message) => message.role === "user"
                     );
+                    const latestAssistant = conversation.messages
+                      .slice()
+                      .reverse()
+                      .find((message) => message.role === "assistant");
                     const downCount = conversation.messages.filter(
                       (message) => message.feedback === "down"
+                    ).length;
+                    const upCount = conversation.messages.filter(
+                      (message) => message.feedback === "up"
                     ).length;
 
                     return (
                       <article key={conversation.id} className="p-4">
-                        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                          <div>
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div className="min-w-0">
                             <div className="mb-2 flex flex-wrap items-center gap-2">
                               <span className="rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600">
                                 {formatDate(conversation.updated_at)}
                               </span>
                               {downCount > 0 && (
-                                <span className="rounded-md bg-red-50 px-2 py-1 text-xs font-medium text-red-700">Есть негативная оценка</span>
+                                <span className="rounded-md bg-red-50 px-2 py-1 text-xs font-medium text-red-700">
+                                  Не помогло: {downCount}
+                                </span>
+                              )}
+                              {upCount > 0 && (
+                                <span className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
+                                  Полезно: {upCount}
+                                </span>
+                              )}
+                              {downCount === 0 && upCount === 0 && (
+                                <span className="rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600">
+                                  Без оценки
+                                </span>
                               )}
                             </div>
                             <h3 className="text-base font-semibold">
                               {firstQuestion?.content ?? conversation.title}
                             </h3>
-                            <p className="mt-1 text-xs text-neutral-500">
-                              {conversation.messages.length} сообщений
-                            </p>
-                          </div>
-                          <button
-                            onClick={() => createKnowledgeFromQuestion(conversation)}
-                            className="h-9 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50"
-                          >
-                            Создать ответ
-                          </button>
-                        </div>
-                        <div className="space-y-3">
-                          {conversation.messages.map((message) => (
-                            <div
-                              key={message.id}
-                              className={`rounded-lg border p-3 ${
-                                message.role === "user"
-                                  ? "border-neutral-200 bg-neutral-50"
-                                  : "border-blue-100 bg-blue-50/40"
-                              }`}
-                            >
-                              <div className="mb-2 flex flex-wrap items-center gap-2 text-xs font-medium text-neutral-500">
-                                <span>{message.role === "user" ? "Пользователь" : "Бот"}</span>
-                                <span>{formatDate(message.created_at)}</span>
-                                {message.role === "assistant" && (
-                                  <span>{feedbackLabel(message.feedback)}</span>
-                                )}
-                                {message.source && <span>Источник: {message.source}</span>}
-                              </div>
-                              <p className="whitespace-pre-wrap text-sm leading-6 text-neutral-700">
-                                {message.content}
+                            {latestAssistant && (
+                              <p className="mt-2 line-clamp-2 whitespace-pre-wrap text-sm leading-6 text-neutral-600">
+                                {latestAssistant.content}
                               </p>
+                            )}
+                            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
+                              <span>{conversation.messages.length} сообщений</span>
+                              {latestAssistant?.source && (
+                                <span>Источник: {latestAssistant.source}</span>
+                              )}
                             </div>
-                          ))}
+                          </div>
+                          <div className="flex shrink-0 flex-wrap gap-2">
+                            <button
+                              onClick={() =>
+                                createKnowledgeFromQuestion(conversation)
+                              }
+                              className="h-9 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50"
+                            >
+                              Создать ответ
+                            </button>
+                            <button
+                              onClick={() => void archiveConversation(conversation)}
+                              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-neutral-300 px-3 text-sm font-medium text-neutral-600 hover:bg-neutral-50"
+                            >
+                              <Archive className="h-4 w-4" />
+                              Убрать
+                            </button>
+                          </div>
                         </div>
+                        <details className="mt-3 rounded-md border border-neutral-200 bg-neutral-50">
+                          <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-neutral-700">
+                            Полная переписка
+                          </summary>
+                          <div className="space-y-3 border-t border-neutral-200 p-3">
+                            {conversation.messages.map((message) => (
+                              <div
+                                key={message.id}
+                                className={`rounded-md border p-3 ${
+                                  message.role === "user"
+                                    ? "border-neutral-200 bg-white"
+                                    : "border-blue-100 bg-blue-50/40"
+                                }`}
+                              >
+                                <div className="mb-2 flex flex-wrap items-center gap-2 text-xs font-medium text-neutral-500">
+                                  <span>
+                                    {message.role === "user" ? "Пользователь" : "Бот"}
+                                  </span>
+                                  <span>{formatDate(message.created_at)}</span>
+                                  {message.role === "assistant" && (
+                                    <span>{feedbackLabel(message.feedback)}</span>
+                                  )}
+                                  {message.source && (
+                                    <span>Источник: {message.source}</span>
+                                  )}
+                                </div>
+                                <p className="whitespace-pre-wrap text-sm leading-6 text-neutral-700">
+                                  {message.content}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
                       </article>
                     );
                   })}

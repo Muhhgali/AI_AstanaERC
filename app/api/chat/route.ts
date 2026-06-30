@@ -2,7 +2,7 @@
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 import { createEmbedding } from "@/lib/embedding";
-import { searchKnowledge } from "@/lib/retrieval";
+import { searchKnowledge, searchKnowledgeLexical } from "@/lib/retrieval";
 import { getSupabaseProjectUrl } from "@/lib/supabaseEnv";
 import {
   buildMeterCorrectionCreatedMessage,
@@ -76,6 +76,76 @@ type SmallTalkIntent = "greeting" | "thanks" | "goodbye" | "capabilities";
 
 const DIRECT_MATCH_THRESHOLD = 0.72;
 const MIN_CONTEXT_THRESHOLD = 0.62;
+const LEXICAL_DIRECT_THRESHOLD = 0.72;
+const CHAT_CACHE_TTL_MS = 5 * 60 * 1000;
+const MAX_CHAT_CACHE_ITEMS = 100;
+const MAX_GPT_HISTORY_MESSAGES = 8;
+
+type CachedChatAnswer = {
+  message: string;
+  source: string;
+  category?: string | null;
+  supportCard?: SupportCard;
+  createdAt: number;
+};
+
+const chatAnswerCache = new Map<string, CachedChatAnswer>();
+
+function getChatCacheKey(question: string, language: ChatLanguage) {
+  return `${language}:${question.replace(/\s+/g, " ").trim().toLowerCase()}`;
+}
+
+function getCachedChatAnswer(question: string, language: ChatLanguage) {
+  const cacheKey = getChatCacheKey(question, language);
+  const cached = chatAnswerCache.get(cacheKey);
+
+  if (!cached) {
+    return null;
+  }
+
+  if (Date.now() - cached.createdAt > CHAT_CACHE_TTL_MS) {
+    chatAnswerCache.delete(cacheKey);
+    return null;
+  }
+
+  return cached;
+}
+
+function setCachedChatAnswer(
+  question: string,
+  language: ChatLanguage,
+  answer: Omit<CachedChatAnswer, "createdAt">
+) {
+  const cacheKey = getChatCacheKey(question, language);
+
+  chatAnswerCache.set(cacheKey, {
+    ...answer,
+    createdAt: Date.now(),
+  });
+
+  if (chatAnswerCache.size > MAX_CHAT_CACHE_ITEMS) {
+    const firstKey = chatAnswerCache.keys().next().value;
+
+    if (firstKey) {
+      chatAnswerCache.delete(firstKey);
+    }
+  }
+}
+
+function getRecentModelMessages(messages: ChatBodyMessage[]) {
+  return messages
+    .filter(
+      (message) =>
+        message.role &&
+        ["user", "assistant"].includes(message.role) &&
+        message.content
+    )
+    .slice(-MAX_GPT_HISTORY_MESSAGES)
+    .map((message) => ({
+      role: message.role!,
+      content: message.content!.slice(0, 1200),
+    }));
+}
 
 const GENERAL_SUPPORT_CARDS: Record<ChatLanguage, SupportCard> = {
   ru: {
@@ -853,6 +923,32 @@ function isKaspiPaymentIntent(question: string) {
   return hasKaspi && hasPayment;
 }
 
+function isPaymentGuidanceIntent(question: string) {
+  const normalized = normalizeRu(question);
+  const hasPayment = [
+    "как оплат",
+    "где оплат",
+    "чем оплат",
+    "способ оплат",
+    "оплата епд",
+    "оплатить епд",
+    "төлем",
+    "төле",
+  ].some((phrase) => normalized.includes(phrase));
+  const hasProblem = [
+    "ошиб",
+    "не прош",
+    "не отраз",
+    "вернуть",
+    "возврат",
+    "двойн",
+    "пеня",
+    "задолж",
+  ].some((phrase) => normalized.includes(phrase));
+
+  return hasPayment && !hasProblem;
+}
+
 function buildAppealFormIntro(language: ChatLanguage) {
   if (language === "kk") {
     return "Өтініш формасын толтырыңыз. Қажет болса байланыс дерегін көрсетіп, құжаттар немесе файлдар қоса аласыз.";
@@ -875,6 +971,22 @@ function buildKaspiPaymentAnswer(language: ChatLanguage) {
   }
 
   return "Да, ЕПД можно оплатить через Kaspi Bank. При оплате проверьте лицевой счет и сумму из квитанции, чтобы платеж корректно зачелся.";
+}
+
+function buildPaymentGuidanceAnswer(language: ChatLanguage) {
+  if (language === "kk") {
+    return [
+      "ЕПД-ны онлайн-банкинг, банк қосымшалары, төлем терминалдары немесе банк кассалары арқылы төлеуге болады.",
+      "Төлем кезінде түбіртектегі дербес шотты және соманы дұрыс көрсетіңіз.",
+      "Төлемді келесі ЕПД-ға уақытында түсіру үшін 25-іне дейін жасаған дұрыс.",
+    ].join("\n");
+  }
+
+  return [
+    "ЕПД можно оплатить через онлайн-банкинг, мобильные приложения банков, платежные терминалы или банковские кассы.",
+    "При оплате проверьте лицевой счет и сумму из квитанции.",
+    "Лучше оплачивать до 25 числа, чтобы платеж успел отразиться в следующем ЕПД.",
+  ].join("\n");
 }
 
 function isEpdDefinitionIntent(question: string) {
@@ -1317,7 +1429,7 @@ async function createMeterCorrectionRequest(params: {
       ? getMeterCorrectionServiceLabel(params.draft.serviceType)
       : params.draft.serviceType,
     comment: params.draft.comment,
-    reason: params.draft.reason ?? params.rawText,
+    reason: params.draft.reason ?? "",
     raw_text: params.rawText,
   };
   let { error } = await getAdminSupabase()
@@ -1338,7 +1450,7 @@ async function createMeterCorrectionRequest(params: {
         ? getMeterCorrectionServiceLabel(params.draft.serviceType)
         : params.draft.serviceType,
       comment: params.draft.comment,
-      reason: params.draft.reason ?? params.rawText,
+      reason: params.draft.reason ?? "",
       raw_text: params.rawText,
     });
 
@@ -1841,6 +1953,92 @@ export async function POST(req: Request) {
       });
     }
 
+    if (isPaymentGuidanceIntent(lastMessage)) {
+      const assistantMessage = buildPaymentGuidanceAnswer(responseLanguage);
+      const saved = await saveTurn({
+        conversationId,
+        visitorId,
+        userMessage: lastMessage,
+        assistantMessage,
+        source: "payment-guidance",
+      });
+
+      return Response.json({
+        message: assistantMessage,
+        source: "payment-guidance",
+        conversationId: saved.conversationId,
+        messageId: saved.messageId,
+        suggestedQuestions: buildSuggestedQuestions({
+          question: lastMessage,
+          source: "payment-guidance",
+          language: responseLanguage,
+        }),
+      });
+    }
+
+    const cachedAnswer = getCachedChatAnswer(lastMessage, responseLanguage);
+
+    if (cachedAnswer) {
+      const saved = await saveTurn({
+        conversationId,
+        visitorId,
+        userMessage: lastMessage,
+        assistantMessage: cachedAnswer.message,
+        source: cachedAnswer.source,
+      });
+
+      return Response.json({
+        message: cachedAnswer.message,
+        source: cachedAnswer.source,
+        conversationId: saved.conversationId,
+        messageId: saved.messageId,
+        suggestedQuestions: buildSuggestedQuestions({
+          question: lastMessage,
+          source: cachedAnswer.source,
+          category: cachedAnswer.category ?? undefined,
+          language: responseLanguage,
+        }),
+        supportCard: cachedAnswer.supportCard,
+      });
+    }
+
+    const lexicalResults = await searchKnowledgeLexical(lastMessage);
+    const lexicalTop = lexicalResults[0];
+
+    if (
+      responseLanguage === "ru" &&
+      lexicalTop &&
+      lexicalTop.score >= LEXICAL_DIRECT_THRESHOLD &&
+      lexicalTop.verified
+    ) {
+      const assistantMessage = lexicalTop.content ?? "";
+      setCachedChatAnswer(lastMessage, responseLanguage, {
+        message: assistantMessage,
+        source: "knowledge-direct",
+        category: lexicalTop.category,
+      });
+      const saved = await saveTurn({
+        conversationId,
+        visitorId,
+        userMessage: lastMessage,
+        assistantMessage,
+        source: "knowledge-direct",
+      });
+
+      return Response.json({
+        message: assistantMessage,
+        source: "knowledge-direct",
+        conversationId: saved.conversationId,
+        messageId: saved.messageId,
+        suggestedQuestions: buildSuggestedQuestions({
+          question: lastMessage,
+          source: "knowledge-direct",
+          category: lexicalTop.category,
+          language: responseLanguage,
+        }),
+      });
+    }
+
     // ===== CREATE QUERY EMBEDDING =====
     const queryEmbedding =
       await createEmbedding(lastMessage);
@@ -1869,6 +2067,11 @@ export async function POST(req: Request) {
       top.similarity > DIRECT_MATCH_THRESHOLD &&
       top.verified
     ) {
+      setCachedChatAnswer(lastMessage, responseLanguage, {
+        message: top.content ?? "",
+        source: "knowledge-direct",
+        category: top.category,
+      });
       const saved = await saveTurn({
         conversationId,
         visitorId,
@@ -1983,17 +2186,7 @@ ${context}
             `.trim(),
           },
 
-          ...messages
-            .filter(
-              (message) =>
-                message.role &&
-                ["user", "assistant"].includes(message.role) &&
-                message.content
-            )
-            .map((message) => ({
-              role: message.role!,
-              content: message.content!,
-            })),
+          ...getRecentModelMessages(messages),
         ],
       });
 
@@ -2023,6 +2216,12 @@ ${context}
         assistantAnswer: assistantMessage,
         reason: gapReason,
         topSimilarity: top?.similarity,
+      });
+    } else {
+      setCachedChatAnswer(lastMessage, responseLanguage, {
+        message: assistantMessage,
+        source: "gpt",
+        category: top?.category,
       });
     }
 

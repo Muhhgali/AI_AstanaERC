@@ -217,3 +217,30 @@ export async function searchKnowledge(
     return [];
   }
 }
+
+export async function searchKnowledgeLexical(queryText: string) {
+  try {
+    const valid = await loadKnowledgeRows();
+
+    if (!queryText.trim() || valid.length === 0) {
+      return [];
+    }
+
+    const scored: KnowledgeSearchResult[] = valid
+      .map((item) => {
+        const overlap = textOverlapScore(queryText, item);
+
+        return {
+          ...item,
+          similarity: overlap,
+          score: overlap + priorityBoost(item),
+        };
+      })
+      .filter((item) => item.similarity > 0);
+
+    return scored.sort((a, b) => b.score - a.score).slice(0, 5);
+  } catch (err) {
+    console.error("LEXICAL KNOWLEDGE SEARCH ERROR:", err);
+    return [];
+  }
+}

@@ -256,3 +256,41 @@ export async function PATCH(req: Request) {
 
   return Response.json({ ok: true });
 }
+
+export async function DELETE(req: Request) {
+  const user = await requireUser(req);
+
+  if (!user) {
+    return Response.json(
+      {
+        message:
+          "Сессия администратора не прошла проверку. Войди заново и проверь Supabase env-переменные на Vercel.",
+      },
+      { status: 401 }
+    );
+  }
+
+  const url = new URL(req.url);
+  const body = (await req.json().catch(() => ({}))) as {
+    conversationId?: string;
+  };
+  const conversationId = body.conversationId ?? url.searchParams.get("conversationId");
+
+  if (!conversationId) {
+    return Response.json(
+      { message: "conversationId is required" },
+      { status: 400 }
+    );
+  }
+
+  const { error } = await getAdminClient()
+    .from("chat_conversations")
+    .delete()
+    .eq("id", conversationId);
+
+  if (error) {
+    return Response.json({ message: error.message }, { status: 500 });
+  }
+
+  return Response.json({ ok: true });
+}

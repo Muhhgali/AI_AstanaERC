@@ -39,8 +39,6 @@ export type SupplierManagerCard = {
   photoUrl?: string;
 };
 
-const HIDDEN_PUBLIC_VALUE = "Скрыто в публичном чате";
-
 const SUPPLIERS = suppliers as SupplierRecord[];
 
 const ORG_TYPE_TOKENS = new Set([
@@ -147,16 +145,37 @@ function extractSupplierCodes(text: string): number[] {
   );
 }
 
+function findManagerFallback(supplier: SupplierRecord) {
+  if (!supplier.bin) {
+    return null;
+  }
+
+  return (
+    SUPPLIERS.find(
+      (candidate) =>
+        candidate.bin === supplier.bin &&
+        Boolean(
+          candidate.managerName ||
+            candidate.managerPhone ||
+            candidate.managerEmail ||
+            candidate.managerPhotoUrl
+        )
+    ) ?? null
+  );
+}
+
 function toManagerCard(supplier: SupplierRecord): SupplierManagerCard {
+  const managerSource = findManagerFallback(supplier) ?? supplier;
+
   return {
     supplierName: supplier.supplierName,
     bin: supplier.bin,
-    managerName: supplier.managerName || "Не назначен",
-    managerRole: "Пользователь Астана-ЕРЦ",
-    phone: supplier.managerPhone ?? "",
-    email: supplier.managerEmail ?? "",
-    managerPhone: supplier.managerPhone ?? "",
-    managerEmail: supplier.managerEmail ?? "",
+    managerName: managerSource.managerName || "Не назначен",
+    managerRole: "Менеджер Астана-ЕРЦ",
+    phone: managerSource.managerPhone ?? "",
+    email: managerSource.managerEmail ?? "",
+    managerPhone: managerSource.managerPhone ?? "",
+    managerEmail: managerSource.managerEmail ?? "",
     supplierPhone: supplier.chairPhone,
     supplierEmail: supplier.supplierEmail,
     supplierCode: supplier.supplierCode,
@@ -164,7 +183,7 @@ function toManagerCard(supplier: SupplierRecord): SupplierManagerCard {
     district: supplier.district,
     contactName: supplier.chairName,
     contract: supplier.contract,
-    photoUrl: supplier.managerPhotoUrl,
+    photoUrl: managerSource.managerPhotoUrl,
   };
 }
 
@@ -317,7 +336,11 @@ export function buildSupplierManagerMessage(
       card.category ? `Санат: ${card.category}` : "",
       card.district ? `Аудан: ${card.district}` : "",
       "",
-      "Менеджердің байланыстары, шарт деректері және жеткізушінің жеке байланыстары публичті чатта көрсетілмейді.",
+      `Менеджер: ${card.managerName || "тағайындалмаған"}`,
+      `Менеджер телефоны: ${card.managerPhone || "көрсетілмеген"}`,
+      `Менеджер поштасы: ${card.managerEmail || "көрсетілмеген"}`,
+      "",
+      "Шарт деректері және жеткізушінің жеке байланыстары публичті чатта көрсетілмейді.",
       "Байланысу немесе нақтылау қажет болса, 109 нөміріне жүгініңіз.",
     ]
       .filter(Boolean)
@@ -331,7 +354,11 @@ export function buildSupplierManagerMessage(
     card.category ? `Категория: ${card.category}` : "",
     card.district ? `Район: ${card.district}` : "",
     "",
-    "Контакты менеджера, договор, контактное лицо поставщика, телефон и почта поставщика не показываются в публичном чате.",
+    `Менеджер: ${card.managerName || "не назначен"}`,
+    `Телефон менеджера: ${card.managerPhone || "не указан"}`,
+    `Почта менеджера: ${card.managerEmail || "не указана"}`,
+    "",
+    "Договор, контактное лицо поставщика, телефон и почта поставщика не показываются в публичном чате.",
     "Для связи или уточнения обратитесь через 109.",
   ]
     .filter(Boolean)
@@ -344,12 +371,12 @@ export function toPublicSupplierManagerCard(
   return {
     supplierName: card.supplierName,
     bin: card.bin,
-    managerName: HIDDEN_PUBLIC_VALUE,
+    managerName: card.managerName,
     managerRole: card.managerRole,
-    phone: "",
-    email: "",
-    managerPhone: "",
-    managerEmail: "",
+    phone: card.managerPhone,
+    email: card.managerEmail,
+    managerPhone: card.managerPhone,
+    managerEmail: card.managerEmail,
     supplierPhone: "",
     supplierEmail: "",
     supplierCode: card.supplierCode,
