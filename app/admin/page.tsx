@@ -486,11 +486,16 @@ export default function AdminPage() {
   const router = useRouter();
 
   const getAccessToken = useCallback(async () => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-    return session?.access_token ?? null;
+      return session?.access_token ?? null;
+    } catch {
+      await supabase.auth.signOut().catch(() => undefined);
+      return null;
+    }
   }, []);
 
   const apiRequest = useCallback(
@@ -648,7 +653,14 @@ export default function AdminPage() {
     const checkUser = async () => {
       const {
         data: { user },
+        error,
       } = await supabase.auth.getUser();
+
+      if (error) {
+        await supabase.auth.signOut().catch(() => undefined);
+        router.push("/login?reason=session");
+        return;
+      }
 
       if (!user) {
         router.push("/login");
@@ -3054,9 +3066,9 @@ export default function AdminPage() {
                   </div>
                 ) : (
                   <div className="divide-y divide-neutral-200">
-                    {filteredSuppliers.slice(0, 160).map((supplier) => (
+                    {filteredSuppliers.slice(0, 160).map((supplier, index) => (
                       <article
-                        key={`${supplier.supplierCode}-${supplier.bin}`}
+                        key={`${supplier.supplierCode}-${supplier.bin}-${index}`}
                         className="p-4 hover:bg-neutral-50"
                       >
                         <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
