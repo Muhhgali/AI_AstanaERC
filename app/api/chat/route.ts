@@ -1337,6 +1337,125 @@ function cleanAndFormatResponse(message: string, language: ChatLanguage): string
   return cleaned;
 }
 
+const SUGGESTIONS_RU = {
+  default: [
+    "Что такое ЕПД простыми словами",
+    "Как оплатить ЕПД",
+    "Как передать показания счетчика",
+  ],
+  suppliers: [
+    "Как найти менеджера поставщика",
+    "Как найти поставщика услуги",
+    "Какие данные нужны для поиска менеджера поставщика",
+  ],
+  payments: [
+    "Оплата ЕПД через Kaspi",
+    "Что делать если платеж не отразился",
+    "Что делать при ошибочной оплате",
+  ],
+  latePayment: [
+    "Почему в квитанции пришла двойная сумма",
+    "Оплата после 25 числа не попала в квитанцию",
+    "Как оплатить только разницу по квитанции",
+  ],
+  meters: [
+    "Как передать показания счетчика",
+    "Как исправить показания счетчика",
+    "Какие данные нужны для исправления показаний",
+  ],
+  receipts: [
+    "Что такое ЕПД простыми словами",
+    "Где посмотреть ЕПД",
+    "Как получить электронную квитанцию",
+  ],
+  accounts: [
+    "Как узнать номер лицевого счета",
+    "Что такое лицевой счет",
+    "Как изменить данные по лицевому счету",
+  ],
+  requests: [
+    "Как оставить обращение через бот",
+    "Какие данные указать в обращении",
+    "Как проверить статус заявки",
+  ],
+  support: [
+    "Куда обращаться по коммунальным вопросам",
+    "Телефон поддержки 109",
+    "Адрес Qalaqyzmet",
+  ],
+  technicalSupport: [
+    "Куда писать по технической ошибке",
+    "Что приложить к технической ошибке",
+    "Не получается войти в личный кабинет",
+  ],
+} as const;
+
+const SUGGESTIONS_KK = {
+  default: [
+    "ЕПД деген не?",
+    "ЕПД қалай төленеді?",
+    "Есептегіш көрсеткішін қалай жіберуге болады?",
+  ],
+  suppliers: [
+    "Жеткізуші менеджерін қалай табуға болады?",
+    "Жеткізушіні қалай табуға болады?",
+    "Менеджерді іздеу үшін қандай деректер керек?",
+  ],
+  payments: [
+    "Kaspi арқылы ЕПД төлеу",
+    "Төлем көрінбесе не істеу керек?",
+    "Қате төлем болса не істеу керек?",
+  ],
+  latePayment: [
+    "Квитанцияда неге екі есе сома келді?",
+    "25-інен кейінгі төлем квитанцияға түспеді",
+    "Квитанция бойынша тек айырманы қалай төлеуге болады?",
+  ],
+  meters: [
+    "Есептегіш көрсеткішін қалай жіберуге болады?",
+    "Есептегіш көрсеткішін қалай түзетуге болады?",
+    "Көрсеткішті түзету үшін қандай деректер керек?",
+  ],
+  receipts: [
+    "ЕПД деген не?",
+    "ЕПД-ны қайдан көруге болады?",
+    "Электронды квитанцияны қалай алуға болады?",
+  ],
+  accounts: [
+    "Дербес шот нөмірін қалай білуге болады?",
+    "Дербес шот деген не?",
+    "Дербес шоттағы деректерді қалай өзгертуге болады?",
+  ],
+  requests: [
+    "Бот арқылы өтініш қалай қалдыруға болады?",
+    "Өтініште қандай деректерді көрсету керек?",
+    "Өтінім мәртебесін қалай тексеруге болады?",
+  ],
+  support: [
+    "Коммуналдық сұрақтар бойынша қайда жүгінуге болады?",
+    "109 қолдау телефоны",
+    "Qalaqyzmet мекенжайы",
+  ],
+  technicalSupport: [
+    "Техникалық қате бойынша қайда жазу керек?",
+    "Техникалық қатеге не тіркеу керек?",
+    "Жеке кабинетке кіру мүмкін емес",
+  ],
+} as const;
+
+type SuggestionSetKey = keyof typeof SUGGESTIONS_RU;
+
+function getSuggestionSet(language: ChatLanguage, key: SuggestionSetKey) {
+  return language === "kk" ? SUGGESTIONS_KK[key] : SUGGESTIONS_RU[key];
+}
+
+function pickSuggestedQuestions(
+  language: ChatLanguage,
+  key: SuggestionSetKey
+) {
+  return uniqueQuestions([...getSuggestionSet(language, key)]);
+}
+
 function buildSuggestedQuestions(params: {
   question: string;
   source?: string;
@@ -1348,33 +1467,23 @@ function buildSuggestedQuestions(params: {
   );
 
   if (params.source === "supplier-manager") {
-    return params.language === "kk"
-      ? ["Кодпен табу", "Жабдықтаушы байланысы", "Менің менеджерім"]
-      : ["Найти по коду", "Контакты поставщика", "Мой менеджер"];
+    return pickSuggestedQuestions(params.language, "suppliers");
   }
 
   if (params.source === "supplier-lookup-help") {
-    return params.language === "kk"
-      ? ["Кодпен табу", "БСН бойынша іздеу", "Жеткізуші атауы"]
-      : ["Найти по коду", "Поиск по БИН", "Название поставщика"];
+    return pickSuggestedQuestions(params.language, "suppliers");
   }
 
   if (params.source === "small-talk") {
-    return params.language === "kk"
-      ? ["ЕПД деген не?", "Төлем қалай жасалады?", "Көрсеткіш беру"]
-      : ["Что такое ЕПД?", "Как оплатить?", "Передать показания"];
+    return pickSuggestedQuestions(params.language, "default");
   }
 
   if (params.source?.startsWith("meter-correction")) {
-    return params.language === "kk"
-      ? ["Қандай деректер керек?", "Өтінім мәртебесі", "Көрсеткішті түзету"]
-      : ["Какие данные нужны?", "Статус заявки", "Исправить показания"];
+    return pickSuggestedQuestions(params.language, "meters");
   }
 
   if (isLatePaymentDoubleChargeIntent(params.question)) {
-    return params.language === "kk"
-      ? ["25-інен кейінгі төлем", "Айырмасын төлеу", "Төлем түсті ме?"]
-      : ["Оплата после 25-го", "Оплатить разницу", "Платеж зачислен?"];
+    return pickSuggestedQuestions(params.language, "latePayment");
   }
 
   if (
@@ -1385,9 +1494,7 @@ function buildSuggestedQuestions(params: {
     normalized.includes("төле") ||
     normalized.includes("төлем")
   ) {
-    return params.language === "kk"
-      ? ["Kaspi арқылы төлеу", "Төлем көрінбейді", "Қате төлем"]
-      : ["Оплата через Kaspi", "Платеж не отразился", "Ошибочная оплата"];
+    return pickSuggestedQuestions(params.language, "payments");
   }
 
   if (
@@ -1401,9 +1508,7 @@ function buildSuggestedQuestions(params: {
     normalized.includes("санауыш") ||
     normalized.includes("су")
   ) {
-    return params.language === "kk"
-      ? ["Көрсеткіш жіберу", "Көрсеткішті түзету", "Неге кірмеді?"]
-      : ["Передать показания", "Исправить показания", "Почему не попали?"];
+    return pickSuggestedQuestions(params.language, "meters");
   }
 
   if (
@@ -1414,9 +1519,7 @@ function buildSuggestedQuestions(params: {
     normalized.includes("түбіртек") ||
     normalized.includes("қағаз")
   ) {
-    return params.language === "kk"
-      ? ["Түбіртек көшірмесі", "Электронды түбіртек", "Қағаздан бас тарту"]
-      : ["Дубликат квитанции", "Электронная квитанция", "Отказ от бумаги"];
+    return pickSuggestedQuestions(params.language, "receipts");
   }
 
   if (
@@ -1427,28 +1530,58 @@ function buildSuggestedQuestions(params: {
     normalized.includes("иесі") ||
     normalized.includes("қайта рәсім")
   ) {
-    return params.language === "kk"
-      ? ["Иесін ауыстыру", "Қандай құжаттар?", "Дербес шот нөмірі"]
-      : ["Сменить владельца", "Какие документы?", "Номер лицевого счета"];
+    return pickSuggestedQuestions(params.language, "accounts");
   }
 
   if (isTechnicalSupportQuestion(params.question)) {
-    return params.language === "kk"
-      ? ["Қайда жазу керек?", "Кабинет ашылмайды", "Форма жіберілмейді"]
-      : ["Куда написать?", "Кабинет не открывается", "Форма не отправляется"];
+    return pickSuggestedQuestions(params.language, "technicalSupport");
   }
 
-  return params.language === "kk"
-    ? uniqueQuestions([
-        "Қандай деректер керек?",
-        "Есептеуді тексеру",
-        "Өтініш қалдыру",
-      ])
-    : uniqueQuestions([
-        "Какие данные нужны?",
-        "Проверить начисления",
-        "Оставить обращение",
-      ]);
+  if (params.category) {
+    const normalizedCategory = params.category.toLowerCase();
+
+    if (normalizedCategory.includes("payment")) {
+      return pickSuggestedQuestions(params.language, "payments");
+    }
+
+    if (normalizedCategory.includes("billing")) {
+      return pickSuggestedQuestions(params.language, "latePayment");
+    }
+
+    if (normalizedCategory.includes("meter")) {
+      return pickSuggestedQuestions(params.language, "meters");
+    }
+
+    if (normalizedCategory.includes("receipt") || normalizedCategory.includes("epd")) {
+      return pickSuggestedQuestions(params.language, "receipts");
+    }
+
+    if (normalizedCategory.includes("account")) {
+      return pickSuggestedQuestions(params.language, "accounts");
+    }
+
+    if (normalizedCategory.includes("supplier")) {
+      return pickSuggestedQuestions(params.language, "suppliers");
+    }
+
+    if (normalizedCategory.includes("request")) {
+      return pickSuggestedQuestions(params.language, "requests");
+    }
+
+    if (normalizedCategory.includes("technical")) {
+      return pickSuggestedQuestions(params.language, "technicalSupport");
+    }
+
+    if (normalizedCategory.includes("support")) {
+      return pickSuggestedQuestions(params.language, "support");
+    }
+  }
+
+  if (params.source === "appeal-form" || params.source === "appointment-form") {
+    return pickSuggestedQuestions(params.language, "requests");
+  }
+
+  return pickSuggestedQuestions(params.language, "default");
 }
 
 async function saveKnowledgeGap(params: {
