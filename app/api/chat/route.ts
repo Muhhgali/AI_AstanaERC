@@ -1145,9 +1145,24 @@ function isLatePaymentDoubleChargeIntent(question: string) {
   const normalized = normalizeRu(question);
   const hasPlainDoubleAmount =
     normalized.includes("двойн") ||
+    normalized.includes("двойной счет") ||
+    normalized.includes("двойной счёт") ||
     normalized.includes("две суммы") ||
     normalized.includes("2 суммы") ||
     normalized.includes("сумма больше") ||
+    normalized.includes("за два месяц") ||
+    normalized.includes("за 2 месяц") ||
+    normalized.includes("за нужн") ||
+    normalized.includes("только за месяц") ||
+    normalized.includes("только за нужн") ||
+    normalized.includes("только нужн") ||
+    normalized.includes("только разниц") ||
+    normalized.includes("оплатить разниц") ||
+    normalized.includes("чек об оплат") ||
+    normalized.includes("есть чек") ||
+    normalized.includes("имеется чек") ||
+    normalized.includes("поздно оплат") ||
+    normalized.includes("поздняя оплат") ||
     normalized.includes("много пришл") ||
     normalized.includes("не сел") ||
     normalized.includes("не села") ||
@@ -1181,9 +1196,24 @@ function isLatePaymentDoubleChargeIntent(question: string) {
   }
   const hasDoubleAmount =
     normalized.includes("двойн") ||
+    normalized.includes("двойной счет") ||
+    normalized.includes("двойной счёт") ||
     normalized.includes("две суммы") ||
     normalized.includes("2 суммы") ||
     normalized.includes("сумма больше") ||
+    normalized.includes("за два месяц") ||
+    normalized.includes("за 2 месяц") ||
+    normalized.includes("за нужн") ||
+    normalized.includes("только за месяц") ||
+    normalized.includes("только за нужн") ||
+    normalized.includes("только нужн") ||
+    normalized.includes("только разниц") ||
+    normalized.includes("оплатить разниц") ||
+    normalized.includes("чек об оплат") ||
+    normalized.includes("есть чек") ||
+    normalized.includes("имеется чек") ||
+    normalized.includes("поздно оплат") ||
+    normalized.includes("поздняя оплат") ||
     normalized.includes("много пришл") ||
     normalized.includes("не сел") ||
     normalized.includes("не села") ||
@@ -1225,7 +1255,8 @@ function buildLatePaymentDoubleChargeAnswer(language: ChatLanguage) {
   return [
     "Скорее всего, оплата была сделана после формирования квитанции или после 25 числа, поэтому она могла не попасть в текущий ЕПД.",
     "Платеж обычно не пропадает: деньги остаются на лицевом счете, а квитанция может показывать сумму без учета поздней оплаты.",
-    "Если часть уже оплачена, оплатите только разницу. В следующий раз лучше платить до 25 числа, чтобы платеж успел отразиться.",
+    "Если прошлый месяц уже оплачен и есть чек, оплачивайте только разницу за текущий месяц. Чек сохраните до отражения платежа.",
+    "Если Kaspi не дает изменить сумму или есть сомнения по остатку, уточните сумму к оплате через 109 перед повторной оплатой.",
   ].join("\n");
 }
 
@@ -1766,6 +1797,31 @@ export async function POST(req: Request) {
       });
     }
 
+    if (isLatePaymentDoubleChargeIntent(lastMessage)) {
+      const assistantMessage = buildLatePaymentDoubleChargeAnswer(
+        responseLanguage
+      );
+      const saved = await saveTurn({
+        conversationId,
+        visitorId,
+        userMessage: lastMessage,
+        assistantMessage,
+        source: "billing-guidance",
+      });
+
+      return Response.json({
+        message: assistantMessage,
+        source: "billing-guidance",
+        conversationId: saved.conversationId,
+        messageId: saved.messageId,
+        suggestedQuestions: buildSuggestedQuestions({
+          question: lastMessage,
+          source: "billing-guidance",
+          language: responseLanguage,
+        }),
+      });
+    }
+
     if (isKaspiPaymentIntent(lastMessage)) {
       const assistantMessage = buildKaspiPaymentAnswer(responseLanguage);
       const saved = await saveTurn({
@@ -2016,31 +2072,6 @@ export async function POST(req: Request) {
         suggestedQuestions: buildSuggestedQuestions({
           question: lastMessage,
           source: "supplier-lookup-help",
-          language: responseLanguage,
-        }),
-      });
-    }
-
-    if (isLatePaymentDoubleChargeIntent(lastMessage)) {
-      const assistantMessage = buildLatePaymentDoubleChargeAnswer(
-        responseLanguage
-      );
-      const saved = await saveTurn({
-        conversationId,
-        visitorId,
-        userMessage: lastMessage,
-        assistantMessage,
-        source: "billing-guidance",
-      });
-
-      return Response.json({
-        message: assistantMessage,
-        source: "billing-guidance",
-        conversationId: saved.conversationId,
-        messageId: saved.messageId,
-        suggestedQuestions: buildSuggestedQuestions({
-          question: lastMessage,
-          source: "billing-guidance",
           language: responseLanguage,
         }),
       });

@@ -1323,7 +1323,7 @@ export default function Home() {
       }
 
       setHistoryConversations(data.conversations ?? []);
-      setPanelError(null); // Clear error on success
+      setPanelError("");
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
         setPanelError("Время ожидания истории истекло. Попробуйте еще раз.");
