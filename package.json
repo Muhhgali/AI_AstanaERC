@@ -15,7 +15,8 @@
     "knowledge:upsert:draft-extra": "tsx scripts/upsertKnowledge.ts data/knowledge.draft.extra-questions.json",
     "knowledge:compact": "tsx scripts/compactKnowledge.ts",
     "knowledge:replace:compact": "tsx scripts/replaceKnowledge.ts data/knowledge.compact.json --yes",
-    "suppliers:import": "tsx scripts/importSuppliers.ts"
+    "suppliers:import": "tsx scripts/importSuppliers.ts",
+    "test:intents": "tsx scripts/testResidentIntent.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

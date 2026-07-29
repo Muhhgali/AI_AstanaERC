@@ -20,6 +20,10 @@ import {
   findSupplierManager,
   toPublicSupplierManagerCard,
 } from "@/lib/suppliers";
+import {
+  hasResidentProblemSignal,
+  resolveResidentIntent,
+} from "@/lib/residentIntent";
 
 let openai: OpenAI | null = null;
 let adminSupabase: ReturnType<typeof createClient<any>> | null = null;
@@ -1857,6 +1861,51 @@ export async function POST(req: Request) {
 
     const smallTalkIntent = detectSmallTalkIntent(lastMessage);
 
+    const residentIntent = resolveResidentIntent(
+      lastMessage,
+      responseLanguage
+    );
+
+    if (residentIntent) {
+      const assistantMessage = residentIntent.answer;
+      const saved = await saveTurn({
+        conversationId,
+        visitorId,
+        userMessage: lastMessage,
+        assistantMessage,
+        source: residentIntent.source,
+      });
+
+      if (residentIntent.needsKnowledgeGap) {
+        await saveKnowledgeGap({
+          conversationId: saved.conversationId,
+          assistantMessageId: saved.messageId,
+          userQuestion: lastMessage,
+          assistantAnswer: assistantMessage,
+          reason: "no-match",
+        });
+      }
+
+      const supportCard =
+        residentIntent.support === "technical"
+          ? TECH_SUPPORT_CARDS[responseLanguage]
+          : undefined;
+
+      return Response.json({
+        message: assistantMessage,
+        source: residentIntent.source,
+        intent: residentIntent.kind,
+        conversationId: saved.conversationId,
+        messageId: saved.messageId,
+        suggestedQuestions: buildSuggestedQuestions({
+          question: lastMessage,
+          source: residentIntent.source,
+          language: responseLanguage,
+        }),
+        supportCard,
+      });
+    }
+
     if (smallTalkIntent) {
       const assistantMessage = buildSmallTalkAnswer(
         smallTalkIntent,
@@ -2266,7 +2315,8 @@ export async function POST(req: Request) {
       responseLanguage === "ru" &&
       lexicalTop &&
       lexicalTop.score >= LEXICAL_DIRECT_THRESHOLD &&
-      lexicalTop.verified
+      lexicalTop.verified &&
+      !hasResidentProblemSignal(lastMessage)
     ) {
       const assistantMessage = lexicalTop.content ?? "";
       setCachedChatAnswer(lastMessage, responseLanguage, {
@@ -2322,7 +2372,8 @@ export async function POST(req: Request) {
       responseLanguage === "ru" &&
       top &&
       top.similarity > DIRECT_MATCH_THRESHOLD &&
-      top.verified
+      top.verified &&
+      !hasResidentProblemSignal(lastMessage)
     ) {
       setCachedChatAnswer(lastMessage, responseLanguage, {
         message: top.content ?? "",
@@ -2444,6 +2495,12 @@ ${r.content}
 4. ЕСЛИ вопрос о технических проблемах - предложи контакт поддержки
 5. ЕСЛИ несколько вариантов ответа - приоритет: проверенная информация > свежая информация > похожая информация
 6. ЛОГИЧЕСКИЙ АНАЛИЗ: если вопрос связан с платежами или начислениями - применяй ВСЮ релевантную информацию из базы (например, если пользователь говорит о повторном начислении после оплаты, это может быть связано с поздней оплатой - применяй оба контекста)
+7. СНАЧАЛА ПОЙМИ ПРАКТИЧЕСКУЮ ЦЕЛЬ жителя, даже если сообщение написано с ошибками, разговорными словами или на смешанном русском и казахском языке
+8. ОПИСАНИЕ ПРОБЛЕМЫ важнее общего слова об услуге: "не отправляется", "не учли", "почему начислили", "нужно переоформить" — это не обычный вопрос "куда/как"
+9. НЕ повторяй действие или ссылку, если пользователь прямо написал, что уже попробовал и это не помогло
+10. Если для точного ответа не хватает одного существенного факта, сначала кратко отрази понимание ситуации, затем задай только один простой уточняющий вопрос
+11. Не делай вывод о причине начисления, праве на льготу, зачислении платежа или статусе договора без прямого подтверждения в базе
+12. Не повторяй в ответе полный лицевой счёт, адрес, сведения о здоровье и другие персональные данные пользователя без необходимости
 
 СТИЛЬ:
 - Для дат: четкие сроки (например: "с 10 по 25 число")
