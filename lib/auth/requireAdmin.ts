@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { getSupabaseAnonKey, getSupabaseProjectUrl } from "@/lib/supabaseEnv";
+import { getSupabaseAnonKey, getSupabaseProjectUrl } from "../supabaseEnv";
 
 type TrustedUser = {
   id?: string;
@@ -103,4 +103,3 @@ export async function requireAdmin(
     };
   }
 }
-

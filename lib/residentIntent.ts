@@ -20,6 +20,9 @@ function normalizeResidentText(text: string) {
   return text
     .toLowerCase()
     .replace(/ё/g, "е")
+    .replace(/палуч/g, "получ")
+    .replace(/паказан/g, "показан")
+    .replace(/атправ/g, "отправ")
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();

@@ -16,7 +16,13 @@
     "knowledge:compact": "tsx scripts/compactKnowledge.ts",
     "knowledge:replace:compact": "tsx scripts/replaceKnowledge.ts data/knowledge.compact.json --yes",
     "suppliers:import": "tsx scripts/importSuppliers.ts",
-    "test:intents": "tsx scripts/testResidentIntent.ts"
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:intents": "vitest run tests/residentIntent.test.ts",
+    "typecheck": "tsc --noEmit",
+    "check:env": "tsx scripts/checkEnvironment.ts --network",
+    "check:env:ci": "tsx scripts/checkEnvironment.ts --ci",
+    "check": "npm run check:env:ci && npm run lint && npm run typecheck && npm run test:run && npm run build"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.109.0",
@@ -37,10 +43,13 @@
     "eslint": "^9.39.5",
     "eslint-config-next": "16.2.12",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "3.2.7"
   },
   "overrides": {
-    "esbuild": "0.28.1",
+    "tsx": {
+      "esbuild": "0.28.1"
+    },
     "postcss": "8.5.24"
   }
 }
