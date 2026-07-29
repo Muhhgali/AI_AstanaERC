@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from "@supabase/supabase-js";
+import { enforceRateLimit, RATE_LIMIT_POLICIES } from "@/lib/rateLimit";
 import { getSupabaseProjectUrl } from "@/lib/supabaseEnv";
 
 type FeedbackPayload = {
@@ -25,6 +26,15 @@ function getSupabase() {
 }
 
 export async function POST(req: Request) {
+  const rateLimitResponse = enforceRateLimit(
+    req,
+    RATE_LIMIT_POLICIES.publicMutation
+  );
+
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
+
   try {
     const body = (await req.json()) as FeedbackPayload;
 
@@ -42,14 +52,18 @@ export async function POST(req: Request) {
       .eq("role", "assistant");
 
     if (error) {
-      return Response.json({ message: error.message }, { status: 500 });
+      console.error("CHAT FEEDBACK UPDATE FAILED:", error.code);
+      return Response.json(
+        { message: "Не удалось сохранить оценку." },
+        { status: 500 }
+      );
     }
 
     return Response.json({ ok: true });
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unknown error";
-
-    return Response.json({ message }, { status: 500 });
+  } catch {
+    return Response.json(
+      { message: "Не удалось сохранить оценку." },
+      { status: 500 }
+    );
   }
 }
