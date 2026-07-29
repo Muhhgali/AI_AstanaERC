@@ -2,6 +2,7 @@
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 import { getSupabaseAnonKey, getSupabaseProjectUrl } from "@/lib/supabaseEnv";
+import { enforceRateLimit, RATE_LIMIT_POLICIES } from "@/lib/rateLimit";
 
 let authClient: ReturnType<typeof createClient<any>> | null = null;
 let openai: OpenAI | null = null;
@@ -52,6 +53,15 @@ async function requireUser(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const rateLimited = enforceRateLimit(
+    req,
+    RATE_LIMIT_POLICIES.documentAnalysis
+  );
+
+  if (rateLimited) {
+    return rateLimited;
+  }
+
   const user = await requireUser(req);
 
   if (!user) {

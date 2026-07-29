@@ -2,6 +2,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { createEmbedding } from "@/lib/embedding";
 import { getSupabaseAnonKey, getSupabaseProjectUrl } from "@/lib/supabaseEnv";
+import { enforceRateLimit, RATE_LIMIT_POLICIES } from "@/lib/rateLimit";
 
 type KnowledgePayload = {
   id?: string;
@@ -146,6 +147,12 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const rateLimited = enforceRateLimit(req, RATE_LIMIT_POLICIES.adminAiMutation);
+
+  if (rateLimited) {
+    return rateLimited;
+  }
+
   const user = await requireUser(req);
 
   if (!user) {
@@ -182,6 +189,12 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
+  const rateLimited = enforceRateLimit(req, RATE_LIMIT_POLICIES.adminAiMutation);
+
+  if (rateLimited) {
+    return rateLimited;
+  }
+
   const user = await requireUser(req);
 
   if (!user) {

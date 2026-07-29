@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from "@supabase/supabase-js";
 import { sendRequestEmail } from "@/lib/requestEmail";
+import { enforceRateLimit, RATE_LIMIT_POLICIES } from "@/lib/rateLimit";
 import { getSupabaseProjectUrl } from "@/lib/supabaseEnv";
 
 const APPOINTMENT_EMAIL_TO = "office.manager@aerc.kz";
@@ -92,6 +93,12 @@ function getNextDates(weekday: number, baseDate = new Date()) {
 }
 
 export async function POST(req: Request) {
+  const rateLimited = enforceRateLimit(req, RATE_LIMIT_POLICIES.publicMutation);
+
+  if (rateLimited) {
+    return rateLimited;
+  }
+
   try {
     const body = await req.json().catch(() => ({}));
     const firstName = String(body?.firstName ?? "").trim();

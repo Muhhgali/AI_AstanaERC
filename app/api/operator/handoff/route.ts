@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from "@supabase/supabase-js";
 import { getSupabaseProjectUrl } from "@/lib/supabaseEnv";
+import { enforceRateLimit, RATE_LIMIT_POLICIES } from "@/lib/rateLimit";
 
 let adminClient: ReturnType<typeof createClient<any>> | null = null;
 
@@ -31,6 +32,12 @@ function isMissingTable(error: { code?: string; message?: string }) {
 }
 
 export async function POST(req: Request) {
+  const rateLimited = enforceRateLimit(req, RATE_LIMIT_POLICIES.publicMutation);
+
+  if (rateLimited) {
+    return rateLimited;
+  }
+
   const body = (await req.json().catch(() => ({}))) as {
     conversationId?: string;
     visitorId?: string;

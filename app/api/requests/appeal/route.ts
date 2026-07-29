@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from "@supabase/supabase-js";
 import { sendRequestEmail } from "@/lib/requestEmail";
+import { enforceRateLimit, RATE_LIMIT_POLICIES } from "@/lib/rateLimit";
 import { getSupabaseProjectUrl } from "@/lib/supabaseEnv";
 
 const APPEAL_EMAIL_TO = "office.manager@aerc.kz";
@@ -69,6 +70,12 @@ async function uploadFiles(files: File[]) {
 }
 
 export async function POST(req: Request) {
+  const rateLimited = enforceRateLimit(req, RATE_LIMIT_POLICIES.publicMutation);
+
+  if (rateLimited) {
+    return rateLimited;
+  }
+
   try {
     const formData = await req.formData();
     const name = readText(formData, "name");

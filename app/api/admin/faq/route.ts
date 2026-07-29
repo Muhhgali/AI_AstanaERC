@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 import { getSupabaseAnonKey, getSupabaseProjectUrl } from "@/lib/supabaseEnv";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { enforceRateLimit, RATE_LIMIT_POLICIES } from "@/lib/rateLimit";
 
 function getOpenAI() {
   if (!process.env.OPENAI_API_KEY) {
@@ -28,6 +29,12 @@ function getSupabase() {
 }
 
 export async function POST(req: Request) {
+  const rateLimited = enforceRateLimit(req, RATE_LIMIT_POLICIES.adminAiMutation);
+
+  if (rateLimited) {
+    return rateLimited;
+  }
+
   const authorization = await requireAdmin(req);
 
   if (!authorization.ok) {

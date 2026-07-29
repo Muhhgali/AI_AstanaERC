@@ -24,6 +24,7 @@ import {
   hasResidentProblemSignal,
   resolveResidentIntent,
 } from "@/lib/residentIntent";
+import { enforceRateLimit, RATE_LIMIT_POLICIES } from "@/lib/rateLimit";
 
 let openai: OpenAI | null = null;
 let adminSupabase: ReturnType<typeof createClient<any>> | null = null;
@@ -1724,6 +1725,12 @@ function isMissingMeterCorrectionTable(error: unknown) {
 }
 
 export async function POST(req: Request) {
+  const rateLimited = enforceRateLimit(req, RATE_LIMIT_POLICIES.chat);
+
+  if (rateLimited) {
+    return rateLimited;
+  }
+
   try {
     // ===== BODY PARSING WITH ERROR HANDLING =====
     let body: unknown;
