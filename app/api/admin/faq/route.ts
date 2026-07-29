@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 import { getSupabaseAnonKey, getSupabaseProjectUrl } from "@/lib/supabaseEnv";
+import { requireAdmin } from "@/lib/auth/requireAdmin";
 
 function getOpenAI() {
   if (!process.env.OPENAI_API_KEY) {
@@ -27,8 +28,24 @@ function getSupabase() {
 }
 
 export async function POST(req: Request) {
+  const authorization = await requireAdmin(req);
+
+  if (!authorization.ok) {
+    return authorization.response;
+  }
+
   try {
-    const { question, answer, keywords } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    const question = typeof body.question === "string" ? body.question.trim() : "";
+    const answer = typeof body.answer === "string" ? body.answer.trim() : "";
+    const keywords = typeof body.keywords === "string" ? body.keywords.trim() : "";
+
+    if (!question || !answer) {
+      return Response.json(
+        { message: "question and answer are required" },
+        { status: 400 }
+      );
+    }
 
     // 🧠 создаём embedding
     const embeddingRes = await getOpenAI().embeddings.create({
@@ -49,16 +66,16 @@ export async function POST(req: Request) {
     ]);
 
     if (error) {
-      return Response.json({ error: error.message }, { status: 500 });
+      return Response.json(
+        { message: "Failed to create FAQ entry" },
+        { status: 500 }
+      );
     }
 
     return Response.json({ ok: true });
-  } catch (e: unknown) {
-    const message =
-      e instanceof Error ? e.message : "Unknown error";
-
+  } catch {
     return Response.json(
-      { error: message },
+      { message: "Failed to create FAQ entry" },
       { status: 500 }
     );
   }
