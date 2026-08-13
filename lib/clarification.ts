@@ -3,6 +3,7 @@ import type {
   RetrievalIntentHint,
 } from "./rag/types";
 import { normalizeQueryText } from "./rag/queryUnderstanding";
+import { resolveResidentIntent } from "./residentIntent";
 
 export type ClarificationLanguage = "ru" | "kk";
 
@@ -221,6 +222,11 @@ export function decideClarification(
 
   if (input.confidence.level === "high") {
     return buildDecision("answer", "HIGH_CONFIDENCE_ANSWER");
+  }
+
+  const explicitResidentIntent = resolveResidentIntent(input.query, input.language);
+  if (explicitResidentIntent?.specificity === "high") {
+    return buildDecision("answer", "MEDIUM_SAFE_TO_ANSWER");
   }
 
   if (input.confidence.level === "low") {

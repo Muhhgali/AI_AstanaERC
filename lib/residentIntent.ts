@@ -1,6 +1,27 @@
 export type ResidentLanguage = "ru" | "kk";
 
 export type ResidentIntentKind =
+  | "SERVICE_REMOVE"
+  | "SERVICE_ADD"
+  | "SERVICE_PROVIDER_INFO"
+  | "RECEIPT_DUPLICATE_CHARGE"
+  | "RECEIPT_WRONG_AMOUNT"
+  | "RECEIPT_NOT_RECEIVED"
+  | "RECEIPT_GET_COPY"
+  | "RECEIPT_EMAIL_DELIVERY"
+  | "RECEIPT_FORMATION_DATE"
+  | "PAYMENT_METHOD"
+  | "PAYMENT_FAILED"
+  | "PAYMENT_NOT_REFLECTED"
+  | "PAYMENT_DUPLICATE"
+  | "PAYMENT_WRONG"
+  | "PAYMENT_STATUS"
+  | "METER_SUBMIT"
+  | "METER_CORRECT"
+  | "METER_SERVICE_UNAVAILABLE"
+  | "ACCOUNT_FIND"
+  | "ACCOUNT_CHANGE_OWNER"
+  | "ACCOUNT_PERSONAL_DEBT"
   | "technical-support-contact"
   | "multi-intent-payment-meter"
   | "meter-submission-failure"
@@ -15,6 +36,7 @@ export type ResidentIntentResolution = {
   kind: ResidentIntentKind;
   source: `resident-intent-${ResidentIntentKind}`;
   answer: string;
+  specificity?: "high" | "medium" | "low";
   support?: "technical";
   needsKnowledgeGap?: boolean;
 };
@@ -40,7 +62,7 @@ function buildResolution(
   answer: string,
   options: Pick<
     ResidentIntentResolution,
-    "support" | "needsKnowledgeGap"
+    "specificity" | "support" | "needsKnowledgeGap"
   > = {}
 ): ResidentIntentResolution {
   return {
@@ -49,6 +71,88 @@ function buildResolution(
     answer,
     ...options,
   };
+}
+
+function specificKnowledgeGapAnswer(
+  language: ResidentLanguage,
+  lines: { ru: string[]; kk: string[] }
+) {
+  return (language === "kk" ? lines.kk : lines.ru).join("\n");
+}
+
+function serviceRemoveAnswer(language: ResidentLanguage) {
+  return specificKnowledgeGapAnswer(language, {
+    ru: [
+      "Правильно понимаю: вы хотите убрать или исключить конкретную услугу из квитанции/ЕПД.",
+      "Я не буду переводить это в общий вопрос по квитанции. Для такой процедуры нужна точная проверенная инструкция по конкретной услуге, а в базе сейчас её нет.",
+      "Уточните название услуги из строки ЕПД — например домофон, вывоз мусора, КСК/ОСИ или другая услуга. Я отмечу тему для пополнения базы знаний и дальше смогу отвечать уже по этой процедуре.",
+    ],
+    kk: [
+      "Дұрыс түсіндім: сіз түбіртектен/ЕПД-дан нақты қызметті алып тастағыңыз келеді.",
+      "Мұны жалпы түбіртек мәселесіне айналдырмаймын. Мұндай рәсім үшін нақты қызмет бойынша тексерілген нұсқаулық керек, ал базада ол қазір жоқ.",
+      "ЕПД жолындағы қызмет атауын жазыңыз — мысалы, домофон, қоқыс шығару, КСК/ОСИ немесе басқа қызмет. Мен бұл тақырыпты білім базасын толықтыруға белгілеймін.",
+    ],
+  });
+}
+
+function serviceAddAnswer(language: ResidentLanguage) {
+  return specificKnowledgeGapAnswer(language, {
+    ru: [
+      "Правильно понимаю: вы хотите добавить услугу в квитанцию/ЕПД.",
+      "Это отдельный процесс по услуге и поставщику, не общий вопрос по квитанции. В базе пока нет точной проверенной инструкции для добавления услуги.",
+      "Уточните название услуги и поставщика, если он известен. Тему отмечу для пополнения базы знаний.",
+    ],
+    kk: [
+      "Дұрыс түсіндім: сіз түбіртекке/ЕПД-ға қызмет қосуды сұрап тұрсыз.",
+      "Бұл жалпы түбіртек мәселесі емес, нақты қызмет пен жеткізушіге байланысты процесс. Базада қазір қызмет қосу бойынша тексерілген нұсқаулық жоқ.",
+      "Қызмет атауын және белгілі болса жеткізушіні жазыңыз. Тақырыпты білім базасына қосуға белгілеймін.",
+    ],
+  });
+}
+
+function duplicateChargeAnswer(language: ResidentLanguage) {
+  return specificKnowledgeGapAnswer(language, {
+    ru: [
+      "Правильно понимаю: речь о возможном двойном начислении в квитанции/ЕПД.",
+      "Это не общий вопрос «почему сумма больше», поэтому я не буду задавать общее уточнение по квитанции.",
+      "В базе пока нет точной проверенной инструкции по двойным начислениям. Уточните услугу, период и видно ли две одинаковые строки/суммы — тему отмечу для пополнения базы знаний.",
+    ],
+    kk: [
+      "Дұрыс түсіндім: түбіртекте/ЕПД-да екі рет есептелген сома болуы мүмкін.",
+      "Бұл «неге сома көп» деген жалпы сұрақ емес, сондықтан жалпы түбіртек бойынша нақтылау сұрамаймын.",
+      "Қосарланған есептеу бойынша базада әзірге тексерілген нұсқаулық жоқ. Қызметті, кезеңді және екі бірдей жол/сома көрініп тұрғанын нақтылаңыз — тақырыпты білім базасына белгілеймін.",
+    ],
+  });
+}
+
+function receiptWrongAmountAnswer(language: ResidentLanguage) {
+  return specificKnowledgeGapAnswer(language, {
+    ru: [
+      "Понимаю: вы хотите разобраться с неправильной или неожиданной суммой в квитанции.",
+      "По одной сумме причину определить нельзя. Нужны название услуги из строки ЕПД, расчётный период и чем сумма отличается от прошлого месяца.",
+      "Полный лицевой счёт и документы в открытый чат отправлять не нужно.",
+    ],
+    kk: [
+      "Түсіндім: түбіртектегі дұрыс емес немесе күтпеген соманы анықтағыңыз келеді.",
+      "Бір ғана сома бойынша себебін анықтау мүмкін емес. ЕПД жолындағы қызмет атауы, есептік кезең және өткен аймен айырмасы керек.",
+      "Толық дербес шот нөмірін және құжаттарды ашық чатқа жібермеңіз.",
+    ],
+  });
+}
+
+function paymentDuplicateAnswer(language: ResidentLanguage) {
+  return specificKnowledgeGapAnswer(language, {
+    ru: [
+      "Правильно понимаю: оплата могла пройти два раза.",
+      "Это отдельный сценарий возврата/зачёта платежа, не общий вопрос по оплате. В базе пока нет точной проверенной инструкции по двойной оплате.",
+      "Сохраните чеки и уточните дату, способ оплаты и за какую услугу платили; данные карты в чат не отправляйте. Тему отмечу для пополнения базы знаний.",
+    ],
+    kk: [
+      "Дұрыс түсіндім: төлем екі рет өтіп кеткен болуы мүмкін.",
+      "Бұл жалпы төлем сұрағы емес, қайтару/есепке алу бойынша бөлек сценарий. Базада қос төлем бойынша тексерілген нұсқаулық әзірге жоқ.",
+      "Чектерді сақтап, төлем күнін, тәсілін және қай қызмет үшін төлегеніңізді нақтылаңыз; карта деректерін чатқа жібермеңіз. Тақырыпты базаға қосуға белгілеймін.",
+    ],
+  });
 }
 
 function meterSubmissionFailureAnswer(language: ResidentLanguage) {
@@ -283,6 +387,7 @@ export function resolveResidentIntent(
     "куда обратиться",
     "куда написать",
     "кому писать",
+    "кому написать",
     "как связаться",
     "контакт",
     "номер",
@@ -303,6 +408,107 @@ export function resolveResidentIntent(
     );
   }
 
+  const hasReceiptContext = hasAny(text, [
+    "квитанц",
+    "епд",
+    "түбіртек",
+    "тубиртек",
+  ]);
+  const hasGenericServiceContext = hasAny(text, [
+    "услуг",
+    "строк",
+    "поставщик",
+    "домофон",
+    "кск",
+    "оси",
+    "мусор",
+    "вывоз",
+    "лифт",
+    "сервис",
+    "қызмет",
+    "жеткізуші",
+  ]);
+  const hasRemoveAction = hasAny(text, [
+    "убрать",
+    "уберите",
+    "удалить",
+    "исключить",
+    "отключить",
+    "отказаться",
+    "не хочу платить",
+    "снять",
+    "алып таста",
+    "өшіру",
+    "бас тарт",
+  ]);
+  const hasAddAction = hasAny(text, [
+    "добавить",
+    "подключить",
+    "включить",
+    "внести",
+    "қосу",
+    "енгіз",
+  ]);
+
+  if ((hasReceiptContext || hasGenericServiceContext) && hasGenericServiceContext && hasRemoveAction) {
+    return buildResolution("SERVICE_REMOVE", serviceRemoveAnswer(language), {
+      specificity: "high",
+      needsKnowledgeGap: true,
+    });
+  }
+
+  if ((hasReceiptContext || hasGenericServiceContext) && hasGenericServiceContext && hasAddAction) {
+    return buildResolution("SERVICE_ADD", serviceAddAnswer(language), {
+      specificity: "high",
+      needsKnowledgeGap: true,
+    });
+  }
+
+  const hasDuplicateSignal = hasAny(text, [
+    "двойн",
+    "дважды",
+    "две",
+    "два раза",
+    "2 раза",
+    "повторн",
+    "дублир",
+    "дубль",
+    "қосар",
+    "екі рет",
+  ]);
+  const hasChargeOrPaymentContext = hasAny(text, [
+    "начисл",
+    "сумм",
+    "квитанц",
+    "епд",
+    "оплат",
+    "платеж",
+    "списал",
+    "деньги",
+    "есептел",
+    "төлем",
+    "сома",
+  ]);
+
+  if (hasDuplicateSignal && hasChargeOrPaymentContext && hasAny(text, ["оплат", "платеж", "списал", "деньги", "төлем"])) {
+    return buildResolution("PAYMENT_DUPLICATE", paymentDuplicateAnswer(language), {
+      specificity: "high",
+      needsKnowledgeGap: true,
+    });
+  }
+
+  if (
+    hasDuplicateSignal &&
+    hasChargeOrPaymentContext &&
+    (hasAny(text, ["начисл", "квитанц", "епд", "есептел", "түбіртек"]) ||
+      (hasAny(text, ["одинаков"]) && hasAny(text, ["сумм", "строк"])))
+  ) {
+    return buildResolution("RECEIPT_DUPLICATE_CHARGE", duplicateChargeAnswer(language), {
+      specificity: "high",
+      needsKnowledgeGap: true,
+    });
+  }
+
   const hasMeterContext = hasAny(text, [
     "показан",
     "счетчик",
@@ -316,6 +522,7 @@ export function resolveResidentIntent(
   const hasSubmissionContext = hasAny(text, [
     "отправ",
     "передат",
+    "передач",
     "сдать",
     "сайт",
     "жібере",
@@ -414,6 +621,7 @@ export function resolveResidentIntent(
       "купля продажа",
       "новый собственник",
       "смена собственник",
+      "смена владельц",
       "жаңа меншік",
     ]) ||
     (hasPropertyContext &&
@@ -421,6 +629,7 @@ export function resolveResidentIntent(
         "продал",
         "продала",
         "продали",
+        "прода",
         "купил",
         "купила",
         "приобрел",
@@ -517,10 +726,17 @@ export function resolveResidentIntent(
   ]);
 
   if (hasChargeQuestion && hasServiceContext) {
+    if (!hasPaymentContext && hasReceiptContext && hasAny(text, ["неправ", "ошиб", "лишн", "больш", "мален", "сумм", "артық", "қате"])) {
+      return buildResolution("RECEIPT_WRONG_AMOUNT", receiptWrongAmountAnswer(language), {
+        specificity: "high",
+        needsKnowledgeGap: true,
+      });
+    }
+
     return buildResolution(
       "disputed-service-charge",
       disputedServiceChargeAnswer(language),
-      { needsKnowledgeGap: true }
+      { specificity: "medium", needsKnowledgeGap: true }
     );
   }
 

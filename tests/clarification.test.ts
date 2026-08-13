@@ -50,6 +50,21 @@ describe("clarification decision layer", () => {
     expect((clarificationAnswer(decision).match(/\?/g) ?? []).length).toBe(1);
   });
 
+  it.each([
+    "хочу убрать услугу с квитанции",
+    "как исключить домофон из ЕПД",
+    "пришли двойные начисления по квитанции",
+    "в ЕПД два раза начислили одну услугу",
+    "оплата списалась два раза",
+  ])("does not downgrade a specific intent to generic clarification: %s", (query) => {
+    const decision = decideClarification(mediumInput(query));
+
+    expect(decision.action).toBe("answer");
+    expect(decision.reason).toBe("MEDIUM_SAFE_TO_ANSWER");
+    expect(clarificationAnswer(decision)).not.toContain("Что именно произошло с квитанцией");
+    expect(clarificationAnswer(decision)).not.toContain("деньги списались");
+  });
+
   it("clarifies ambiguous meter requests", () => {
     const decision = decideClarification(
       mediumInput("проблема со счетчиком")
