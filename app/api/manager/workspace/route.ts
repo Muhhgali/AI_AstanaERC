@@ -17,6 +17,7 @@ import {
 
 type WorkspaceAction =
   | "claim_next"
+  | "skip"
   | "start"
   | "submit_review"
   | "return_review"
@@ -302,6 +303,70 @@ export async function POST(req: Request) {
 
     if (!gapId) {
       return Response.json({ message: "gapId is required" }, { status: 400 });
+    }
+
+    if (action === "skip") {
+      const gap = await loadGap(gapId);
+
+      if (gap.assigned_to !== userId) {
+        return Response.json({ message: "Forbidden" }, { status: 403 });
+      }
+
+      if (
+        typeof body.expectedVersion === "number" &&
+        gap.manager_version !== body.expectedVersion
+      ) {
+        return Response.json(
+          { message: "Задача уже изменилась. Обнови список перед пропуском." },
+          { status: 409 }
+        );
+      }
+
+      const { data, error } = await getAdminClient()
+        .from("knowledge_gaps")
+        .update({
+          assignment_status: "unassigned",
+          assigned_to: null,
+          assigned_at: null,
+          started_at: null,
+          review_comment: null,
+        })
+        .eq("id", gapId)
+        .eq("assigned_to", userId)
+        .eq("manager_version", gap.manager_version)
+        .in("assignment_status", ["assigned", "in_progress"])
+        .select(GAP_SELECT)
+        .single();
+
+      if (error) {
+        return Response.json(
+          {
+            message: isNoRows(error)
+              ? "Задача уже изменилась или уже отправлена на проверку. Обнови список."
+              : error.message,
+          },
+          { status: isNoRows(error) ? 409 : 500 }
+        );
+      }
+
+      await getAdminClient().from("manager_workspace_audit_events").insert({
+        actor_id: userId,
+        action: "skip",
+        entity: "knowledge_gap",
+        entity_id: gapId,
+        previous_status: gap.assignment_status,
+        new_status: "unassigned",
+        previous_assignee: userId,
+        new_assignee: null,
+      });
+
+      const workspace = await loadMyWorkspace(userId);
+
+      return Response.json({
+        item: publicGap(data as ManagerWorkspaceGap),
+        message: "Вопрос пропущен и возвращён в общую очередь.",
+        ...workspace,
+      });
     }
 
     if (action === "start") {

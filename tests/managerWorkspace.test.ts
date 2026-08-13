@@ -103,6 +103,18 @@ describe("manager workspace", () => {
     expect(migration).toContain("manager_workspace_audit_events");
   });
 
+  it("exposes skip action to return an assigned question to queue", () => {
+    const route = fs.readFileSync(
+      path.join(process.cwd(), "app", "api", "manager", "workspace", "route.ts"),
+      "utf8"
+    );
+
+    expect(route).toContain('"skip"');
+    expect(route).toContain("assignment_status: \"unassigned\"");
+    expect(route).toContain("new_status: \"unassigned\"");
+    expect(route).toContain("previous_assignee: userId");
+  });
+
   it("prioritizes no-match repeated questions over weak isolated matches", () => {
     const noMatch = calculateQuestionPriority({
       frequency: 4,

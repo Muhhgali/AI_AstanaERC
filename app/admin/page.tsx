@@ -2405,6 +2405,24 @@ export default function AdminPage() {
                           )}
                         </div>
 
+                        {canEdit && (
+                          <div className="mt-3">
+                            <button
+                              onClick={() =>
+                                void mutateManagerWorkspace({
+                                  action: "skip",
+                                  gapId: item.id,
+                                  expectedVersion: item.manager_version,
+                                })
+                              }
+                              disabled={managerWorkspaceSaving}
+                              className="h-9 rounded-md border border-neutral-300 px-3 text-sm font-medium text-neutral-600 hover:bg-neutral-50 disabled:opacity-60"
+                            >
+                              Пропустить
+                            </button>
+                          </div>
+                        )}
+
                         <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_280px]">
                           <label className="block">
                             <span className="mb-1 block text-sm font-medium text-neutral-700">
