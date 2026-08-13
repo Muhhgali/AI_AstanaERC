@@ -28,20 +28,11 @@ import {
   findSupplierManager,
   toPublicSupplierManagerCard,
 } from "@/lib/suppliers";
-import {
-  hasResidentProblemSignal,
-  resolveResidentIntent,
-} from "@/lib/residentIntent";
-import {
-  clarificationAnswer,
-  decideClarification,
-} from "@/lib/clarification";
 import { enforceRateLimit, RATE_LIMIT_POLICIES } from "@/lib/rateLimit";
 import {
-  buildAssistantPromptV2,
-  type AssistantPromptLanguage,
-} from "@/lib/ai/prompts/assistantPromptV2";
-import type { RetrievalConfidenceLevel } from "@/lib/rag/types";
+  buildAssistantPromptV3,
+  type AssistantPromptV3Language,
+} from "@/lib/ai/prompts/assistantPromptV3";
 import {
   getOrCreateVisitorOwnership,
   jsonWithVisitorOwnership,
@@ -92,7 +83,9 @@ type KnowledgeGapReason =
   | "no-match"
   | "weak-match"
   | "unverified-match"
-  | "gpt-answer";
+  | "gpt-answer"
+  | "private-account-lookup"
+  | "out-of-domain";
 
 type SupportCard = {
   title: string;
@@ -393,6 +386,9 @@ function hasMissingInfoAnswer(answer: string) {
     "точной информации нет",
     "нет точной информации",
     "информации нет",
+    "подтверждённой информации",
+    "подтвержденной информации",
+    "информации пока недостаточно",
     "нет в базе",
     "уточнить",
     "обратиться в поддержку",
@@ -474,24 +470,36 @@ function buildUncertainAnswer(
   hasSupportDirection: boolean,
   language: ChatLanguage
 ) {
+  void hasSupportDirection;
+
   if (language === "kk") {
     return [
-      "Бұл сұрақ бойынша базада әзірге нақты тексерілген ақпарат жоқ.",
+      "Бұл сұрақ бойынша базада әзірге расталған ақпарат жоқ.",
       "Қате мәлімет бермеу үшін жауапты ойдан шығармаймын.",
-      "Нақтылап жіберіңізші: төлем, түбіртек, көрсеткіш, дербес шот, жеткізуші немесе өтініш бойынша сұрап тұрсыз ба?",
-      hasSupportDirection
-        ? "Төменде қолайлы байланыс қалдырдым. Бұл тақырыпты білім базасын толықтыруға белгіледім."
-        : "Бұл тақырыпты білім базасын толықтыруға белгіледім.",
+      "Сұрақ білім базасын толықтыру үшін белгіленді.",
     ].join("\n");
   }
 
   return [
-    "По этому вопросу в базе пока нет точной проверенной информации.",
+    "В базе пока нет подтверждённой информации по этому вопросу.",
     "Я не буду придумывать ответ, чтобы не дать неверные данные.",
-    "Уточните, пожалуйста, что именно нужно проверить: оплата, квитанция, показания, лицевой счёт, поставщик или обращение?",
-    hasSupportDirection
-      ? "Ниже оставил подходящий контакт. Тему уже отметил для пополнения базы знаний."
-      : "Тему уже отметил для пополнения базы знаний.",
+    "Вопрос зафиксирован для дополнения базы знаний.",
+  ].join("\n");
+}
+
+function buildPrivateAccountLookupAnswer(language: ChatLanguage) {
+  if (language === "kk") {
+    return [
+      "Мен нақты дербес шот бойынша қарызды немесе жеке начисление сомасын көре алмаймын.",
+      "Қате сома айтпау үшін оны ойдан шығармаймын.",
+      "Базада расталған жалпы нұсқаулық болса, соған сүйеніп жауап беремін; жеке деректер бойынша сұрақ білім базасын толықтыру үшін белгіленді.",
+    ].join("\n");
+  }
+
+  return [
+    "Я не вижу данные конкретного лицевого счёта и не могу назвать личную сумму долга или начислений.",
+    "Чтобы не дать неверную сумму, я не буду её придумывать.",
+    "Если в базе есть общая инструкция, отвечу по ней; этот вопрос зафиксирован для дополнения базы знаний.",
   ].join("\n");
 }
 
@@ -1310,23 +1318,6 @@ function isLatePaymentDoubleChargeIntent(question: string) {
   return hasDoubleAmount && hasPaymentOrReceipt;
 }
 
-function buildLatePaymentDoubleChargeAnswer(language: ChatLanguage) {
-  if (language === "kk") {
-    return [
-      "Сірә, төлем түбіртек қалыптасқаннан кейін немесе 25-інен кейін жасалған, сондықтан ағымдағы ЕПД-ға кірмей қалуы мүмкін.",
-      "Төлем әдетте жоғалмайды: ақша дербес шотта қалады, ал түбіртекте кеш төлем ескерілмеген сома көрінуі мүмкін.",
-      "Егер соманың бір бөлігі төленген болса, тек айырмасын төлеңіз. Келесі жолы төлем түбіртекте дұрыс көрінуі үшін 25-іне дейін төлеген дұрыс.",
-    ].join("\n");
-  }
-
-  return [
-    "Скорее всего, оплата была сделана после формирования квитанции или после 25 числа, поэтому она могла не попасть в текущий ЕПД.",
-    "Платеж обычно не пропадает: деньги остаются на лицевом счете, а квитанция может показывать сумму без учета поздней оплаты.",
-    "Если прошлый месяц уже оплачен и есть чек, оплачивайте только разницу за текущий месяц. Чек сохраните до отражения платежа.",
-    "Если Kaspi не дает изменить сумму или есть сомнения по остатку, уточните сумму к оплате через 109 перед повторной оплатой.",
-  ].join("\n");
-}
-
 function cleanAndFormatResponse(message: string, language: ChatLanguage): string {
   // Remove extra whitespace
   let cleaned = message
@@ -1345,6 +1336,14 @@ function cleanAndFormatResponse(message: string, language: ChatLanguage): string
         "Түсіндім",
       ]
     : [
+        "Правильно понимаю",
+        "Понимаю ваш вопрос",
+        "Речь идёт о",
+        "Речь идет о",
+        "Это не общий вопрос",
+        "Я не буду задавать уточнение",
+        "Я классифицирую",
+        "Моя система определила",
         "По информации из базы",
         "По данным базы",
         "Согласно базе",
@@ -1996,11 +1995,6 @@ export async function POST(req: Request) {
 
     const smallTalkIntent = detectSmallTalkIntent(lastMessage);
 
-    const residentIntent = resolveResidentIntent(
-      lastMessage,
-      responseLanguage
-    );
-
     if (hasPromptSafetySignal(lastMessage)) {
       const assistantMessage = buildPromptSafetyAnswer(responseLanguage);
       const saved = await saveTurn({
@@ -2021,46 +2015,6 @@ export async function POST(req: Request) {
           source: "uncertain",
           language: responseLanguage,
         }),
-      });
-    }
-
-    if (residentIntent) {
-      const assistantMessage = residentIntent.answer;
-      const saved = await saveTurn({
-        conversationId,
-        visitorId,
-        userMessage: lastMessage,
-        assistantMessage,
-        source: residentIntent.source,
-      });
-
-      if (residentIntent.needsKnowledgeGap) {
-        await saveKnowledgeGap({
-          conversationId: saved.conversationId,
-          assistantMessageId: saved.messageId,
-          userQuestion: lastMessage,
-          assistantAnswer: assistantMessage,
-          reason: "no-match",
-        });
-      }
-
-      const supportCard =
-        residentIntent.support === "technical"
-          ? TECH_SUPPORT_CARDS[responseLanguage]
-          : undefined;
-
-      return jsonResponse({
-        message: assistantMessage,
-        source: residentIntent.source,
-        intent: residentIntent.kind,
-        conversationId: saved.conversationId,
-        messageId: saved.messageId,
-        suggestedQuestions: buildSuggestedQuestions({
-          question: lastMessage,
-          source: residentIntent.source,
-          language: responseLanguage,
-        }),
-        supportCard,
       });
     }
 
@@ -2132,31 +2086,6 @@ export async function POST(req: Request) {
         suggestedQuestions: buildSuggestedQuestions({
           question: lastMessage,
           source: "meter-reading-guidance",
-          language: responseLanguage,
-        }),
-      });
-    }
-
-    if (isLatePaymentDoubleChargeIntent(lastMessage)) {
-      const assistantMessage = buildLatePaymentDoubleChargeAnswer(
-        responseLanguage
-      );
-      const saved = await saveTurn({
-        conversationId,
-        visitorId,
-        userMessage: lastMessage,
-        assistantMessage,
-        source: "billing-guidance",
-      });
-
-      return jsonResponse({
-        message: assistantMessage,
-        source: "billing-guidance",
-        conversationId: saved.conversationId,
-        messageId: saved.messageId,
-        suggestedQuestions: buildSuggestedQuestions({
-          question: lastMessage,
-          source: "billing-guidance",
           language: responseLanguage,
         }),
       });
@@ -2467,33 +2396,24 @@ export async function POST(req: Request) {
     }
 
     let results: KnowledgeSearchResult[] | null = null;
+    let resultsAreVerifiedRagContext = false;
     const retrievalTraceEnabled =
       process.env.DEBUG_RETRIEVAL === "true" &&
       process.env.NODE_ENV !== "production";
     let retrievalTraceForResponse: unknown;
-    let retrievalConfidenceForPrompt: RetrievalConfidenceLevel | "unknown" =
-      "unknown";
 
     if (process.env.RAG_PIPELINE_VERSION !== "legacy") {
       const retrieval = await retrieveKnowledgeV2({
         query: lastMessage,
         previousMessages: getRecentModelMessages(messages),
       });
-      retrievalConfidenceForPrompt = retrieval.confidence.level;
 
       retrievalTraceForResponse = retrievalTraceEnabled
         ? retrieval.trace
         : undefined;
 
-      if (retrieval.confidence.level === "low") {
-        const supportCard = getSupportCardIfNeeded(
-          lastMessage,
-          responseLanguage
-        );
-        const assistantMessage = buildUncertainAnswer(
-          Boolean(supportCard),
-          responseLanguage
-        );
+      if (retrieval.query.requiresPrivateAccountLookup) {
+        const assistantMessage = buildPrivateAccountLookupAnswer(responseLanguage);
         const saved = await saveTurn({
           conversationId,
           visitorId,
@@ -2508,7 +2428,7 @@ export async function POST(req: Request) {
           assistantMessageId: saved.messageId,
           userQuestion: lastMessage,
           assistantAnswer: assistantMessage,
-          reason: topCandidate ? "weak-match" : "no-match",
+          reason: "private-account-lookup",
           topSimilarity: topCandidate?.scoreBreakdown.semantic,
         });
 
@@ -2523,68 +2443,23 @@ export async function POST(req: Request) {
             category: topCandidate?.category,
             language: responseLanguage,
           }),
-          supportCard,
           retrievalTrace: retrievalTraceForResponse,
         });
       }
 
-      const topCandidate = retrieval.candidates[0];
+      const verifiedContext = retrieval.selectedContext.filter(
+        (candidate) => candidate.verified
+      );
 
-      if (
-        responseLanguage === "ru" &&
-        retrieval.confidence.level === "high" &&
-        topCandidate &&
-        topCandidate.verified &&
-        !retrieval.query.isOutOfDomain &&
-        !hasResidentProblemSignal(lastMessage)
-      ) {
-        const assistantMessage = topCandidate.content ?? "";
-        setCachedChatAnswer(lastMessage, responseLanguage, {
-          message: assistantMessage,
-          source: "knowledge-direct",
-          category: topCandidate.category,
-        });
+      if (retrieval.query.isOutOfDomain || verifiedContext.length === 0) {
+        const topCandidate = retrieval.candidates[0];
+        const assistantMessage = buildUncertainAnswer(false, responseLanguage);
         const saved = await saveTurn({
           conversationId,
           visitorId,
           userMessage: lastMessage,
           assistantMessage,
-          source: "knowledge-direct",
-        });
-
-        return jsonResponse({
-          message: assistantMessage,
-          source: "knowledge-direct",
-          conversationId: saved.conversationId,
-          messageId: saved.messageId,
-          suggestedQuestions: buildSuggestedQuestions({
-            question: lastMessage,
-            source: "knowledge-direct",
-            category: topCandidate.category,
-            language: responseLanguage,
-          }),
-          retrievalTrace: retrievalTraceForResponse,
-        });
-      }
-
-      const clarificationDecision = decideClarification({
-        query: lastMessage,
-        language: responseLanguage,
-        confidence: retrieval.confidence,
-        intentHints: retrieval.query.intentHints,
-        isOutOfDomain: retrieval.query.isOutOfDomain,
-        requiresPrivateAccountLookup: retrieval.query.requiresPrivateAccountLookup,
-        candidates: retrieval.candidates,
-      });
-
-      if (clarificationDecision.action === "clarify") {
-        const assistantMessage = clarificationAnswer(clarificationDecision);
-        const saved = await saveTurn({
-          conversationId,
-          visitorId,
-          userMessage: lastMessage,
-          assistantMessage,
-          source: "clarification",
+          source: "uncertain",
         });
 
         await saveKnowledgeGap({
@@ -2592,13 +2467,17 @@ export async function POST(req: Request) {
           assistantMessageId: saved.messageId,
           userQuestion: lastMessage,
           assistantAnswer: assistantMessage,
-          reason: "weak-match",
+          reason: retrieval.query.isOutOfDomain
+            ? "out-of-domain"
+            : topCandidate
+              ? "weak-match"
+              : "no-match",
           topSimilarity: topCandidate?.scoreBreakdown.semantic,
         });
 
         return jsonResponse({
           message: assistantMessage,
-          source: "clarification",
+          source: "uncertain",
           conversationId: saved.conversationId,
           messageId: saved.messageId,
           suggestedQuestions: buildSuggestedQuestions({
@@ -2611,7 +2490,8 @@ export async function POST(req: Request) {
         });
       }
 
-      results = retrieval.selectedContext.map(toLegacyKnowledgeResult);
+      results = verifiedContext.map(toLegacyKnowledgeResult);
+      resultsAreVerifiedRagContext = true;
     }
 
     if (!results) {
@@ -2622,8 +2502,7 @@ export async function POST(req: Request) {
         responseLanguage === "ru" &&
         lexicalTop &&
         lexicalTop.score >= LEXICAL_DIRECT_THRESHOLD &&
-        lexicalTop.verified &&
-        !hasResidentProblemSignal(lastMessage)
+        lexicalTop.verified
       ) {
         const assistantMessage = lexicalTop.content ?? "";
         setCachedChatAnswer(lastMessage, responseLanguage, {
@@ -2677,11 +2556,11 @@ export async function POST(req: Request) {
 
     // ===== DIRECT ANSWER IF VERY STRONG MATCH =====
     if (
+      !resultsAreVerifiedRagContext &&
       responseLanguage === "ru" &&
       top &&
       top.similarity > DIRECT_MATCH_THRESHOLD &&
-      top.verified &&
-      !hasResidentProblemSignal(lastMessage)
+      top.verified
     ) {
       setCachedChatAnswer(lastMessage, responseLanguage, {
         message: top.content ?? "",
@@ -2710,7 +2589,9 @@ export async function POST(req: Request) {
       });
     }
 
-    const uncertainReason = getUncertainReason(top);
+    const uncertainReason = resultsAreVerifiedRagContext
+      ? null
+      : getUncertainReason(top);
 
     if (uncertainReason) {
       const supportCard = getSupportCardIfNeeded(
@@ -2754,9 +2635,10 @@ export async function POST(req: Request) {
     }
 
     // ===== BUILD CONTEXT (отфильтровано по качеству) =====
-    const relevantResults = results
-      .filter((r) => r.similarity > MIN_CONTEXT_THRESHOLD) // Только релевантные матчи
-      .slice(0, 4); // Максимум 4 лучших результата для контекста
+    const relevantResults = (resultsAreVerifiedRagContext
+      ? results
+      : results.filter((r) => r.similarity > MIN_CONTEXT_THRESHOLD)
+    ).slice(0, 4);
 
     const context = relevantResults
       .map(
@@ -2777,10 +2659,9 @@ ${r.content}
         ? "БАЗА ЗНАНИЙ ПУСТА - бәс информация жок"
         : "БАЗА ЗНАНИЙ ПУСТА - нет подходящей информации");
 
-    const assistantPrompt = buildAssistantPromptV2({
-      language: responseLanguage as AssistantPromptLanguage,
+    const assistantPrompt = buildAssistantPromptV3({
+      language: responseLanguage as AssistantPromptV3Language,
       knowledgeContext: contextOrEmpty,
-      confidence: retrievalConfidenceForPrompt,
     });
 
     // ===== GPT =====
@@ -2816,10 +2697,15 @@ ${r.content}
       source: "gpt",
     });
 
-    const gapReason = getGapReason({
-      top,
-      assistantMessage,
-    });
+    const gapReason =
+      resultsAreVerifiedRagContext && hasMissingInfoAnswer(assistantMessage)
+        ? "gpt-answer"
+        : resultsAreVerifiedRagContext
+          ? null
+          : getGapReason({
+              top,
+              assistantMessage,
+            });
 
     if (gapReason) {
       await saveKnowledgeGap({

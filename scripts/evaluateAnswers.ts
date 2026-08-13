@@ -3,17 +3,9 @@ import "dotenv/config";
 import OpenAI from "openai";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { buildAssistantPromptV2 } from "@/lib/ai/prompts/assistantPromptV2";
+import { buildAssistantPromptV3 } from "@/lib/ai/prompts/assistantPromptV3";
 import { retrieveKnowledgeV2 } from "@/lib/rag/hybridRetrieval";
-import {
-  hasResidentProblemSignal,
-  resolveResidentIntent,
-  type ResidentLanguage,
-} from "@/lib/residentIntent";
-import {
-  clarificationAnswer,
-  decideClarification,
-} from "@/lib/clarification";
+import type { ResidentLanguage } from "@/lib/residentIntent";
 import type {
   ExpectedBehavior,
   RealWorldEvalCase,
@@ -133,12 +125,12 @@ function buildFallbackAnswer(language: ResidentLanguage, outOfDomain = false) {
   if (language === "kk") {
     return outOfDomain
       ? "Мен Астана-ЕРЦ қызметтері бойынша көмектесемін: ЕПД, төлем, түбіртек, көрсеткіштер және өтініштер. Осы тақырып бойынша сұрағыңызды жазыңыз."
-      : "Бұл сұрақ бойынша базада әзірге нақты тексерілген ақпарат жоқ. Қате мәлімет бермеу үшін жауапты ойдан шығармаймын. Нақтылап жіберіңізші: төлем, түбіртек, көрсеткіш, дербес шот, жеткізуші немесе өтініш бойынша сұрап тұрсыз ба?";
+      : "Бұл сұрақ бойынша базада әзірге расталған ақпарат жоқ. Қате мәлімет бермеу үшін жауапты ойдан шығармаймын. Сұрақ білім базасын толықтыру үшін белгіленді.";
   }
 
   return outOfDomain
     ? "Я помогаю с вопросами по услугам Астана-ЕРЦ: ЕПД, оплатой, квитанциями, показаниями и обращениями. Напишите вопрос по этой теме — помогу разобраться."
-    : "По этому вопросу в базе пока нет точной проверенной информации. Я не буду придумывать ответ, чтобы не дать неверные данные. Уточните, пожалуйста, что именно нужно проверить: оплата, квитанция, показания, лицевой счёт, поставщик или обращение?";
+    : "В базе пока нет подтверждённой информации по этому вопросу. Я не буду придумывать ответ, чтобы не дать неверные данные. Вопрос зафиксирован для дополнения базы знаний.";
 }
 
 function buildContext(
@@ -163,28 +155,19 @@ async function generateAnswer(testCase: RealWorldEvalCase) {
     };
   }
 
-  const resident = resolveResidentIntent(
-    testCase.sanitizedQuery,
-    testCase.language
-  );
-
-  if (resident) {
-    return {
-      source: resident.source,
-      answer: resident.answer,
-      retrieval: await retrieveKnowledgeV2({
-        query: testCase.sanitizedQuery,
-        previousMessages: testCase.previousContext,
-      }),
-    };
-  }
-
   const retrieval = await retrieveKnowledgeV2({
     query: testCase.sanitizedQuery,
     previousMessages: testCase.previousContext,
   });
+  const verifiedContext = retrieval.selectedContext.filter(
+    (candidate) => candidate.verified
+  );
 
-  if (retrieval.query.isOutOfDomain || retrieval.confidence.level === "low") {
+  if (
+    retrieval.query.isOutOfDomain ||
+    retrieval.query.requiresPrivateAccountLookup ||
+    verifiedContext.length === 0
+  ) {
     return {
       source: "uncertain",
       answer: buildFallbackAnswer(testCase.language, retrieval.query.isOutOfDomain),
@@ -192,54 +175,18 @@ async function generateAnswer(testCase: RealWorldEvalCase) {
     };
   }
 
-  const top = retrieval.candidates[0];
-
-  if (
-    retrieval.confidence.level === "high" &&
-    top?.verified &&
-    !hasResidentProblemSignal(testCase.sanitizedQuery)
-  ) {
-    return {
-      source: "knowledge-direct",
-      answer: top.content ?? "",
-      retrieval,
-    };
-  }
-
-  const clarificationDecision = decideClarification({
-    query: testCase.sanitizedQuery,
-    language: testCase.language,
-    confidence: retrieval.confidence,
-    intentHints: retrieval.query.intentHints,
-    isOutOfDomain: retrieval.query.isOutOfDomain,
-    requiresPrivateAccountLookup: retrieval.query.requiresPrivateAccountLookup,
-    candidates: retrieval.candidates,
-  });
-
-  if (clarificationDecision.action === "clarify") {
-    return {
-      source: `clarification:${clarificationDecision.reason}`,
-      answer: clarificationAnswer(clarificationDecision),
-      retrieval,
-    };
-  }
-
   if (noLlm) {
     return {
       source: "eval-no-llm",
-      answer:
-        retrieval.confidence.level === "medium"
-          ? "Уточните, пожалуйста, какой именно вопрос нужно решить?"
-          : top?.content ?? buildFallbackAnswer(testCase.language),
+      answer: verifiedContext[0]?.content ?? buildFallbackAnswer(testCase.language),
       retrieval,
     };
   }
 
-  const context = buildContext(retrieval.selectedContext);
-  const prompt = buildAssistantPromptV2({
+  const context = buildContext(verifiedContext);
+  const prompt = buildAssistantPromptV3({
     language: testCase.language,
     knowledgeContext: context,
-    confidence: retrieval.confidence.level,
   });
   const completion = await getOpenAI().chat.completions.create({
     model: process.env.OPENAI_ANSWER_EVAL_MODEL ?? "gpt-4-turbo",
@@ -466,7 +413,7 @@ function summarize(results: AnswerEvalResult[]) {
     groundedness: ratio(results.filter((item) => item.grounded).length, results.length),
     hallucinationRate: ratio(results.filter((item) => item.hallucination).length, results.length),
     clarificationCorrectness: ratio(
-      results.filter((item) => item.clarificationAppropriate === true).length,
+      results.filter((item) => item.clarificationAppropriate === false).length,
       results.filter((item) => item.clarificationAppropriate !== null).length
     ),
     outOfDomainCorrectness: ratio(
@@ -506,7 +453,7 @@ async function main() {
   const summary = summarize(results);
   const payload = {
     evaluator: {
-      version: "answer-eval-v1",
+      version: "answer-eval-v2-knowledge-first",
       inputPath,
       noLlm,
       note:
