@@ -44,6 +44,14 @@ describe("admin authorization", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("allows an app_metadata manager as internal admin access", async () => {
+    const result = await authorizeAdminRequest(request({ token: "valid" }), async () => ({
+      user: { id: "manager-1", app_metadata: { role: "manager" } },
+    }));
+
+    expect(result.ok).toBe(true);
+  });
+
   it("allows an app_metadata roles array admin", async () => {
     const result = await authorizeAdminRequest(request({ token: "valid" }), async () => ({
       user: { id: "admin-2", app_metadata: { roles: ["support", "admin"] } },

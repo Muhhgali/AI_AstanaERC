@@ -69,7 +69,7 @@ export function hasTrustedRole(
 }
 
 export function hasTrustedAdminRole(user: TrustedUser | null) {
-  return hasTrustedRole(user, ["admin"]);
+  return hasTrustedRole(user, ["admin", "manager", "knowledge_editor", "reviewer"]);
 }
 
 async function authorizeRoleRequest(
@@ -112,7 +112,7 @@ export async function authorizeAdminRequest(
   request: Request,
   lookupUser: (accessToken: string) => Promise<UserLookupResult>
 ): Promise<AdminAuthorizationResult> {
-  return authorizeRoleRequest(request, lookupUser, ["admin"], {
+  return authorizeRoleRequest(request, lookupUser, ["admin", "manager", "knowledge_editor", "reviewer"], {
     code: "ADMIN_ROLE_REQUIRED",
     message:
       "Доступ запрещён: пользователь вошёл, но ему не назначена роль admin в Supabase app_metadata.",
@@ -152,7 +152,7 @@ async function authorizeWithSupabase(
 export async function requireAdmin(
   request: Request
 ): Promise<AdminAuthorizationResult> {
-  return authorizeWithSupabase(request, ["admin"], {
+  return authorizeWithSupabase(request, ["admin", "manager", "knowledge_editor", "reviewer"], {
     code: "ADMIN_ROLE_REQUIRED",
     message:
       "Доступ запрещён: пользователь вошёл, но ему не назначена роль admin в Supabase app_metadata.",

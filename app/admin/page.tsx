@@ -639,7 +639,9 @@ export default function AdminPage() {
   const [error, setError] = useState("");
 
   const router = useRouter();
-  const isAdminUser = currentUserRoles.includes("admin");
+  const isAdminUser = currentUserRoles.some((role) =>
+    ["admin", "manager", "knowledge_editor", "reviewer"].includes(role)
+  );
 
   const getAccessToken = useCallback(async () => {
     try {
@@ -1061,7 +1063,7 @@ export default function AdminPage() {
       );
       setCurrentUserRoles(roles);
 
-      if (!roles.includes("admin")) {
+      if (roles.length === 0) {
         setActiveTab("manager-workspace");
         await loadManagerWorkspace();
         return;
