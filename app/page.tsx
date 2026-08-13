@@ -118,9 +118,9 @@ const GUIDED_SCENARIOS = [
 ];
 
 function sourceLabel(source?: string) {
-  if (source === "knowledge-direct") return "База знаний";
-  if (source === "gpt") return "AI + база знаний";
-  if (source === "uncertain") return "Нужна проверка";
+  if (source === "knowledge-direct") return "Проверенная информация";
+  if (source === "gpt") return "По базе знаний";
+  if (source === "uncertain") return "Нужно уточнить";
   if (source === "supplier-manager") return "Карточка поставщика";
   if (source === "billing-guidance") return "Начисления";
   if (source === "appeal-form") return "Обращение";
@@ -131,6 +131,7 @@ function sourceLabel(source?: string) {
   if (source === "appointment-saved") return "Заявка принята";
   if (source === "operator-handoff") return "Оператор";
   if (source === "receipt-analysis") return "Квитанция";
+  if (source === "resident-intent-meter-vague-problem") return "Уточнение";
   if (source === "error") return "Ошибка";
   return source ?? "Ответ";
 }
@@ -704,6 +705,7 @@ export default function Home() {
   const [panelLoading, setPanelLoading] = useState(false);
   const [panelError, setPanelError] = useState("");
   const [receiptUploading, setReceiptUploading] = useState(false);
+  const [activeDocumentId, setActiveDocumentId] = useState<string | undefined>();
   const [voiceSupported, setVoiceSupported] = useState(false);
   const [speakingMessageIndex, setSpeakingMessageIndex] = useState<
     number | null
@@ -938,6 +940,7 @@ export default function Home() {
         body: JSON.stringify({
           conversationId,
           visitorId,
+          activeDocumentId,
           language,
           messages: updated.map(({ role, content }) => ({
             role,
@@ -965,6 +968,7 @@ export default function Home() {
         role: "assistant",
         content: data.message ?? "Не удалось получить ответ.",
         source: data.source,
+        activeDocumentId: data.activeDocumentId,
         supplierCard: data.supplierCard,
         meterCorrectionForm: data.meterCorrectionForm,
         suggestedQuestions: data.suggestedQuestions,
@@ -1462,6 +1466,9 @@ export default function Home() {
         message?: string;
         source?: string;
         suggestedQuestions?: string[];
+        documentId?: string;
+        activeDocumentId?: string;
+        status?: string;
       };
 
       if (!res.ok) {
@@ -1473,6 +1480,10 @@ export default function Home() {
         );
       }
 
+      if (data.activeDocumentId || data.documentId) {
+        setActiveDocumentId(data.activeDocumentId ?? data.documentId);
+      }
+
       setMessages((prev) => [
         ...prev,
         {
@@ -1480,6 +1491,8 @@ export default function Home() {
           content: data.message ?? "",
           source: data.source ?? "receipt-analysis",
           suggestedQuestions: data.suggestedQuestions,
+          activeDocumentId: data.activeDocumentId ?? data.documentId,
+          documentStatus: data.status,
         },
       ]);
     } catch (error) {
@@ -1612,9 +1625,9 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen overflow-y-auto bg-[#eef4fb] text-neutral-950">
-      <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-3 lg:px-6">
-        <header className="mb-3 flex shrink-0 items-center justify-between rounded-lg border border-white/70 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
+    <main className="min-h-screen overflow-y-auto bg-[#f6f8fb] text-neutral-950">
+      <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-3 py-3 sm:px-4 lg:px-6">
+        <header className="mb-3 flex shrink-0 items-center justify-between rounded-2xl border border-neutral-200/80 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
           <div className="flex min-w-0 items-center gap-3">
             <BrandMark size="md" variant="full" />
             <div className="min-w-0">
@@ -1666,9 +1679,9 @@ export default function Home() {
           </div>
         </header>
 
-        <div className="grid flex-1 gap-3 lg:grid-cols-[320px_1fr]">
-          <aside className="hidden flex-col gap-4 lg:flex">
-            <section className="surface-panel rounded-lg border border-white/70 p-4">
+        <div className="grid flex-1 gap-3 xl:grid-cols-[260px_minmax(0,1fr)]">
+          <aside className="hidden flex-col gap-4 xl:flex">
+            <section className="surface-panel rounded-2xl border border-neutral-200/70 p-4">
               <div className="mb-3 flex items-center gap-2">
                 <Sparkles className="text-blue-600" size={18} />
                 <h2 className="font-semibold">Подсказки</h2>
@@ -1685,7 +1698,7 @@ export default function Home() {
                         <button
                           key={prompt}
                           onClick={() => handleGuidedAction(prompt)}
-                          className="w-full rounded-md px-2 py-1.5 text-left text-sm leading-5 text-neutral-700 hover:bg-neutral-50 hover:text-neutral-950"
+                          className="w-full rounded-xl px-2.5 py-2 text-left text-sm leading-5 text-neutral-700 transition hover:bg-neutral-50 hover:text-neutral-950"
                         >
                           {prompt}
                         </button>
@@ -1705,7 +1718,7 @@ export default function Home() {
                       key={scenario.title}
                       type="button"
                       onClick={() => handleGuidedAction(scenario.prompt)}
-                      className="rounded-md border border-neutral-200 bg-white px-3 py-2 text-left hover:border-blue-200 hover:bg-blue-50"
+                        className="rounded-xl border border-neutral-200 bg-white px-3 py-2 text-left transition hover:border-blue-200 hover:bg-blue-50"
                     >
                       <span className="block text-sm font-semibold text-neutral-800">
                         {scenario.title}
@@ -1726,21 +1739,21 @@ export default function Home() {
                   <button
                     type="button"
                     onClick={startAppealRequest}
-                    className="rounded-md border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50"
+                    className="rounded-full border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-neutral-700 transition hover:bg-neutral-50"
                   >
                     Обращение
                   </button>
                   <button
                     type="button"
                     onClick={startAppointmentRequest}
-                    className="rounded-md border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50"
+                    className="rounded-full border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-neutral-700 transition hover:bg-neutral-50"
                   >
                     Прием
                   </button>
                   <button
                     type="button"
                     onClick={() => receiptInputRef.current?.click()}
-                    className="rounded-md border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50"
+                    className="rounded-full border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-neutral-700 transition hover:bg-neutral-50"
                   >
                     Квитанция
                   </button>
@@ -1750,13 +1763,13 @@ export default function Home() {
 
           </aside>
 
-          <section className="surface-panel relative flex h-[calc(100vh-6.5rem)] min-h-[560px] flex-col overflow-hidden rounded-lg border border-white/70">
+          <section className="surface-panel relative flex h-[calc(100vh-6.5rem)] min-h-[560px] flex-col overflow-hidden rounded-2xl border border-neutral-200/70">
             <div className="border-b border-neutral-200 px-4 py-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <h2 className="font-semibold">Чат поддержки</h2>
                   <p className="mt-1 text-sm text-neutral-500">
-                    Диалог сохраняется и продолжится после обновления страницы
+                    Задайте вопрос своими словами — помощник ответит по базе Астана-ЕРЦ
                   </p>
                 </div>
                 <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
@@ -1960,7 +1973,7 @@ export default function Home() {
             <div
               ref={chatScrollRef}
               onScroll={updateChatScrollState}
-              className="app-scrollbar min-h-0 flex-1 overflow-y-auto bg-[linear-gradient(#ffffff,#f8fbff)] px-4 py-4"
+              className="app-scrollbar min-h-0 flex-1 overflow-y-auto bg-[linear-gradient(#ffffff,#f8fbff)] px-3 py-4 sm:px-4"
             >
               <div ref={topRef} />
               {!hasMessages && (
@@ -1968,26 +1981,26 @@ export default function Home() {
                   <div className="mb-5">
                     <BrandMark size="lg" />
                   </div>
-                  <h2 className="text-2xl font-semibold tracking-tight">
-                    С чего начнем?
+                  <h2 className="text-2xl font-semibold tracking-tight text-neutral-950">
+                    Чем помочь?
                   </h2>
                   <p className="mt-3 max-w-xl text-sm leading-6 text-neutral-500">
-                    Напишите вопрос своими словами: про оплату, квитанцию,
-                    показания, начисления, поставщика или обращение. Если
-                    точного ответа нет, я покажу куда обратиться.
+                    Помогу разобраться с квитанцией, оплатой, показаниями,
+                    начислениями и обращениями Астана-ЕРЦ.
                   </p>
 
                   <div className="mt-5 flex max-w-xl flex-wrap justify-center gap-2">
                     {[
-                      "Почему пришла двойная сумма?",
-                      "Нужно исправить показания счетчика",
-                      "Как найти менеджера поставщика?",
+                      "Почему остался долг после оплаты?",
+                      "Как передать показания?",
+                      "Не пришла квитанция",
+                      "Купил квартиру, что дальше?",
                     ].map((prompt) => (
                       <button
                         key={prompt}
                         type="button"
                         onClick={() => handleGuidedAction(prompt)}
-                        className="rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-600 hover:border-blue-200 hover:text-blue-700"
+                        className="rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-800"
                       >
                         {prompt}
                       </button>
@@ -2018,7 +2031,7 @@ export default function Home() {
                       <button
                         key={scenario.title}
                         onClick={() => handleGuidedAction(scenario.prompt)}
-                        className="rounded-md border border-neutral-200 bg-white px-3 py-2 text-left text-sm leading-5 hover:border-blue-300"
+                        className="rounded-xl border border-neutral-200 bg-white px-3 py-2 text-left text-sm leading-5 transition hover:border-blue-300 hover:bg-blue-50"
                       >
                         <span className="block font-semibold">
                           {scenario.title}
@@ -2042,7 +2055,7 @@ export default function Home() {
                       ref={(node) => {
                         messageRefs.current[index] = node;
                       }}
-                      className={`soft-enter rounded-lg transition ${
+                      className={`soft-enter group rounded-xl transition ${
                         highlightedMessageIndex === index
                           ? "bg-yellow-100/70 ring-2 ring-yellow-300"
                           : ""
@@ -2057,10 +2070,10 @@ export default function Home() {
                       )}
 
                       <div
-                        className={`max-w-[88%] rounded-lg px-4 py-3 text-sm leading-6 shadow-sm md:max-w-[82%] ${
+                        className={`max-w-[88%] text-sm leading-6 md:max-w-[82%] ${
                           isUser
-                            ? "bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-blue-900/10"
-                            : "border border-neutral-200 bg-white text-neutral-800"
+                            ? "rounded-2xl bg-blue-600 px-4 py-3 text-white shadow-sm shadow-blue-900/10"
+                            : "rounded-none px-1 py-1 text-neutral-900"
                         }`}
                       >
                         {msg.supplierCard && (
@@ -2201,8 +2214,8 @@ export default function Home() {
                         {!isUser && (
                           <div className="mt-3 flex flex-wrap items-center gap-2">
                             {msg.source && (
-                              <span className="rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-500">
-                                Источник: {sourceLabel(msg.source)}
+                              <span className="rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-medium text-neutral-500 opacity-70">
+                                {sourceLabel(msg.source)}
                               </span>
                             )}
 
@@ -2212,7 +2225,7 @@ export default function Home() {
                               className={`inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium ${
                                 speakingMessageIndex === index
                                   ? "border-blue-300 bg-blue-50 text-blue-700"
-                                  : "border-neutral-200 text-neutral-500 hover:bg-neutral-50"
+                                  : "border-neutral-200 text-neutral-500 opacity-70 hover:bg-neutral-50 hover:opacity-100"
                               } disabled:cursor-not-allowed disabled:opacity-40`}
                               title="Прослушать ответ"
                             >
@@ -2233,7 +2246,7 @@ export default function Home() {
                               className={`inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium ${
                                 msg.feedback === "up"
                                   ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                                  : "border-neutral-200 text-neutral-500 hover:bg-neutral-50"
+                                  : "border-neutral-200 text-neutral-500 opacity-70 hover:bg-neutral-50 hover:opacity-100"
                               }`}
                             >
                               <ThumbsUp size={13} />
@@ -2246,7 +2259,7 @@ export default function Home() {
                               className={`inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs font-medium ${
                                 msg.feedback === "down"
                                   ? "border-red-300 bg-red-50 text-red-700"
-                                  : "border-neutral-200 text-neutral-500 hover:bg-neutral-50"
+                                  : "border-neutral-200 text-neutral-500 opacity-70 hover:bg-neutral-50 hover:opacity-100"
                               }`}
                             >
                               <ThumbsDown size={13} />
@@ -2266,16 +2279,17 @@ export default function Home() {
                 })}
 
                 {loading && (
-                  <div className="soft-enter flex justify-start gap-3">
+                  <div className="soft-enter flex justify-start gap-3" aria-live="polite">
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-600 text-white">
                       <Bot size={18} />
                     </div>
-                    <div className="rounded-lg border border-neutral-200 bg-white px-4 py-3 shadow-sm">
+                    <div className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 shadow-sm">
                       <div className="flex gap-1">
                         <span className="typing-dot h-2 w-2 rounded-full bg-blue-500" />
                         <span className="typing-dot h-2 w-2 rounded-full bg-blue-500" />
                         <span className="typing-dot h-2 w-2 rounded-full bg-blue-500" />
                       </div>
+                      <span className="sr-only">Ищу подходящую информацию…</span>
                     </div>
                   </div>
                 )}
@@ -2311,12 +2325,12 @@ export default function Home() {
               </div>
             )}
 
-            <div className="shrink-0 border-t border-neutral-200 bg-white/95 px-4 py-3 backdrop-blur">
-              <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-lg border border-neutral-300 bg-white p-2 shadow-sm transition focus-within:border-blue-500 focus-within:shadow-md">
+            <div className="shrink-0 border-t border-neutral-200 bg-white/95 px-3 py-3 backdrop-blur sm:px-4">
+              <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border border-neutral-200 bg-white p-2 shadow-sm transition focus-within:border-blue-500 focus-within:shadow-lg focus-within:shadow-blue-900/10">
                 <input
                   ref={receiptInputRef}
                   type="file"
-                  accept="application/pdf,image/jpeg,image/png,image/webp"
+                  accept="application/pdf"
                   className="hidden"
                   onChange={(event) => {
                     const file = event.target.files?.[0];
@@ -2329,8 +2343,9 @@ export default function Home() {
                   type="button"
                   onClick={() => receiptInputRef.current?.click()}
                   disabled={receiptUploading || loading}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-neutral-200 text-neutral-600 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-300"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-neutral-200 text-neutral-600 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-300"
                   title="Загрузить квитанцию"
+                  aria-label="Загрузить квитанцию"
                 >
                   <UploadCloud size={18} />
                 </button>
@@ -2346,8 +2361,9 @@ export default function Home() {
                       144
                     )}px`;
                   }}
-                  placeholder="Напиши вопрос..."
-                  className="max-h-36 min-h-12 flex-1 resize-none border-0 bg-transparent px-2 py-3 text-sm leading-6 outline-none"
+                  placeholder="Напишите вопрос про оплату, квитанцию или показания"
+                  aria-label="Сообщение в чат"
+                  className="max-h-36 min-h-12 flex-1 resize-none border-0 bg-transparent px-2 py-3 text-sm leading-6 outline-none placeholder:text-neutral-400"
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
@@ -2359,7 +2375,7 @@ export default function Home() {
                 <button
                   onClick={toggleVoiceInput}
                   disabled={!speechSupported || loading}
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md border ${
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition ${
                     listening
                       ? "border-red-200 bg-red-50 text-red-700"
                       : "border-neutral-200 text-neutral-600 hover:bg-neutral-50"
@@ -2378,8 +2394,9 @@ export default function Home() {
                 <button
                   onClick={() => void sendMessage()}
                   disabled={!input.trim() || loading}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-300"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:shadow-none"
                   title="Отправить"
+                  aria-label="Отправить сообщение"
                 >
                   <ArrowUp size={18} />
                 </button>

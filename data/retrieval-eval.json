@@ -1,0 +1,502 @@
+[
+  {
+    "id": "exact-payment-kaspi-001",
+    "category": "exact",
+    "query": "Как оплатить ЕПД через Kaspi?",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Оплата ЕПД через Kaspi"],
+    "shouldAnswer": true,
+    "notes": "standard payment wording"
+  },
+  {
+    "id": "exact-payment-epd-002",
+    "category": "exact",
+    "query": "Как оплатить ЕПД?",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Оплата ЕПД", "Оплата Единого платежного документа (ЕПД)", "Оплата коммунальных услуг через ЕПД"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "exact-meter-electricity-003",
+    "category": "exact",
+    "query": "Куда передавать показания электроэнергии?",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Передача показаний электроэнергии", "Как передать показания счетчика"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "exact-meter-water-004",
+    "category": "exact",
+    "query": "Где передать показания воды?",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Передача показаний воды", "Передача показаний счетчиков воды и газа"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "exact-receipt-date-005",
+    "category": "exact",
+    "query": "Когда мы получим квитанцию?",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["КОГДА МЫ ПОЛУЧИМ КВИТАНЦИЮ?", "Сроки доставки электронных и бумажных квитанций"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "exact-duplicate-receipt-006",
+    "category": "exact",
+    "query": "Как получить дубликат квитанции?",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Дубликат квитанции", "Получение дубликата квитанции"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "exact-account-007",
+    "category": "exact",
+    "query": "Как узнать номер лицевого счета?",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Как узнать номер лицевого счета", "Лицевой счет: назначение и проблемы"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "exact-appeal-008",
+    "category": "exact",
+    "query": "Как подать обращение?",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Как оставить обращение через бот", "Какие данные указать в обращении"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "exact-operator-009",
+    "category": "exact",
+    "query": "Как обратиться к оператору?",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Как обратиться к оператору", "Когда нужен оператор"],
+    "expectedIntent": "operator-handoff",
+    "shouldAnswer": true
+  },
+  {
+    "id": "exact-supplier-manager-010",
+    "category": "exact",
+    "query": "Как найти менеджера поставщика через бот?",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Как найти менеджера поставщика через бот", "Какие данные нужны для поиска менеджера поставщика"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "paraphrase-payment-kaspi-011",
+    "category": "paraphrase",
+    "query": "коммуналку в каспи можно оплатить?",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Оплата ЕПД через Kaspi", "Оплата коммунальных услуг через ЕПД"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "paraphrase-payment-online-012",
+    "category": "paraphrase",
+    "query": "можно закрыть коммуналку онлайн?",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Онлайн оплата", "Сервис онлайн оплаты", "Цифровые сервисы для оплаты и информации"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "paraphrase-late-payment-013",
+    "category": "paraphrase",
+    "query": "если оплатил в конце месяца почему долг в новой бумаге?",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Что делать, если оплатил после 25 числа?", "Что делать если платеж не отразился", "Почему видно начисление если я оплатил"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "paraphrase-receipt-missing-014",
+    "category": "paraphrase",
+    "query": "квитанция еще не пришла",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["КОГДА МЫ ПОЛУЧИМ КВИТАНЦИЮ?", "Доставка квитанций", "Сроки доставки электронных и бумажных квитанций"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "paraphrase-account-015",
+    "category": "paraphrase",
+    "query": "лицевой счет где посмотреть",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Как узнать номер лицевого счета", "Лицевой счет", "Лицевой счет: назначение и проблемы"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "paraphrase-meter-light-016",
+    "category": "paraphrase",
+    "query": "счетчик света куда отправлять",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Передача показаний электроэнергии", "Как передать показания счетчика"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "conversational-payment-debt-017",
+    "category": "conversational",
+    "query": "я вчера деньги закинул почему долг опять",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Что делать если платеж не отразился", "Что делать, если оплатил после 25 числа?", "Рекомендации при проблемах с оплатой, начислениями и задолженностью"],
+    "expectedIntent": "resident-intent-uncredited-payment",
+    "shouldAnswer": true
+  },
+  {
+    "id": "conversational-new-receipt-payment-018",
+    "category": "conversational",
+    "query": "оплатил коммуналку но новая квитанция как будто без оплаты",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Что делать если платеж не отразился", "Что делать, если оплатил после 25 числа?", "Почему видно начисление если я оплатил"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "conversational-already-paid-019",
+    "category": "conversational",
+    "query": "я уже платил но сумма не поменялась",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Что делать если платеж не отразился", "Почему видно начисление если я оплатил", "Проблемы и ошибки при оплате коммунальных услуг"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "conversational-paper-debt-020",
+    "category": "conversational",
+    "query": "деньги ушли а в бумажке все равно долг",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Что делать если платеж не отразился", "Что делать, если оплатил после 25 числа?", "Что делать если пришел долг"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "conversational-site-tried-021",
+    "category": "conversational",
+    "query": "я уже через сайт пробовал не работает",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Куда писать по технической ошибке", "Что приложить к технической ошибке"],
+    "expectedIntent": "resident-intent-meter-submission-failure",
+    "shouldAskClarification": true
+  },
+  {
+    "id": "typo-meter-electricity-022",
+    "category": "typos",
+    "query": "куда пердать покозания света",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Передача показаний электроэнергии", "Как передать показания счетчика"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "typo-payment-023",
+    "category": "typos",
+    "query": "как аплатить епд черес каспи",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Оплата ЕПД через Kaspi", "Как оплатить ЕПД"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "typo-receipt-024",
+    "category": "typos",
+    "query": "квитанцыя непришла што делать",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["КОГДА МЫ ПОЛУЧИМ КВИТАНЦИЮ?", "Проблемы с доставкой квитанций", "Доставка квитанций"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "typo-account-025",
+    "category": "typos",
+    "query": "лецевой счот где узнат",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Как узнать номер лицевого счета", "Лицевой счет"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "short-account-026",
+    "category": "very-short",
+    "query": "лицевой счет где",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Как узнать номер лицевого счета", "Лицевой счет"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "short-debt-027",
+    "category": "very-short",
+    "query": "долг висит",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Что делать если пришел долг", "Рекомендации при проблемах с оплатой, начислениями и задолженностью"],
+    "shouldAskClarification": true
+  },
+  {
+    "id": "short-receipt-028",
+    "category": "very-short",
+    "query": "квитанция где",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Где посмотреть ЕПД", "Как получить электронную квитанцию", "КОГДА МЫ ПОЛУЧИМ КВИТАНЦИЮ?"],
+    "shouldAskClarification": true
+  },
+  {
+    "id": "short-meter-029",
+    "category": "very-short",
+    "query": "показания куда",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Как передать показания счетчика", "Когда передавать показания"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "situation-new-owner-030",
+    "category": "situation",
+    "query": "купил квартиру а лицевого счета не знаю",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Как узнать номер лицевого счета", "Лицевой счет: назначение и проблемы", "Изменение данных владельца"],
+    "expectedIntent": "resident-intent-new-owner-account",
+    "shouldAskClarification": true
+  },
+  {
+    "id": "situation-new-owner-031",
+    "category": "situation",
+    "query": "квартиру купил счета еще не знаю",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Как узнать номер лицевого счета", "Лицевой счет", "Изменение данных владельца"],
+    "expectedIntent": "resident-intent-new-owner-account",
+    "shouldAskClarification": true
+  },
+  {
+    "id": "situation-owner-change-032",
+    "category": "situation",
+    "query": "продали квартиру теперь что с лицевым счетом",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Изменение данных владельца", "Как изменить данные по лицевому счету", "Лицевой счет: назначение и проблемы"],
+    "expectedIntent": "resident-intent-ownership-account-change",
+    "shouldAskClarification": true
+  },
+  {
+    "id": "situation-meter-two-033",
+    "category": "situation",
+    "query": "у меня два счетчика воды что вводить",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Какие данные нужны для исправления показаний", "Как передать показания счетчика", "Передача показаний воды"],
+    "shouldAskClarification": true
+  },
+  {
+    "id": "situation-charge-034",
+    "category": "situation",
+    "query": "за домофон почему такая сумма в этом месяце",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Печать услуг «Домофон»", "Почему сумма в квитанции больше обычной", "Проверка начислений"],
+    "expectedIntent": "resident-intent-disputed-service-charge",
+    "shouldAskClarification": true
+  },
+  {
+    "id": "multi-intent-035",
+    "category": "multi-intent",
+    "query": "не пришла квитанция и еще платеж не отображается",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["КОГДА МЫ ПОЛУЧИМ КВИТАНЦИЮ?", "Что делать если платеж не отразился", "Проблемы и ошибки при оплате коммунальных услуг"],
+    "shouldAskClarification": true
+  },
+  {
+    "id": "multi-intent-036",
+    "category": "multi-intent",
+    "query": "как оплатить и куда потом показания отправлять",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Оплата ЕПД", "Как передать показания счетчика", "Оплата ЕПД через Kaspi"],
+    "shouldAskClarification": true
+  },
+  {
+    "id": "multi-intent-037",
+    "category": "multi-intent",
+    "query": "платеж завис и хочу оператору написать",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Что делать если платеж не отразился", "Как обратиться к оператору"],
+    "expectedIntent": "operator-handoff",
+    "shouldAskClarification": true
+  },
+  {
+    "id": "follow-up-038",
+    "category": "follow-up",
+    "query": "а сколько тогда платить?",
+    "language": "ru",
+    "previousMessages": [
+      { "role": "user", "content": "Я оплатил после 25 числа, а в новой квитанции снова долг." },
+      { "role": "assistant", "content": "Платеж после 25 числа мог не попасть в уже сформированную квитанцию." }
+    ],
+    "expectedKnowledgeTitles": ["Что делать, если оплатил после 25 числа?", "Срок и особенности оплаты"],
+    "shouldAskClarification": true
+  },
+  {
+    "id": "follow-up-039",
+    "category": "follow-up",
+    "query": "а где это посмотреть?",
+    "language": "ru",
+    "previousMessages": [
+      { "role": "user", "content": "Как получить электронную квитанцию?" },
+      { "role": "assistant", "content": "ЕПД можно посмотреть в электронных сервисах." }
+    ],
+    "expectedKnowledgeTitles": ["Где посмотреть ЕПД", "Как получить электронную квитанцию"],
+    "shouldAskClarification": true
+  },
+  {
+    "id": "follow-up-040",
+    "category": "follow-up",
+    "query": "и что писать им?",
+    "language": "ru",
+    "previousMessages": [
+      { "role": "user", "content": "Хочу подать обращение по начислениям." },
+      { "role": "assistant", "content": "Можно оставить обращение через бот." }
+    ],
+    "expectedKnowledgeTitles": ["Какие данные указать в обращении", "Как оставить обращение через бот"],
+    "shouldAskClarification": true
+  },
+  {
+    "id": "unknown-benefit-041",
+    "category": "no-answer",
+    "query": "у ребенка инвалидность есть льгота?",
+    "language": "ru",
+    "expectedIntent": "resident-intent-benefit-eligibility",
+    "shouldRefuseOrFallback": true,
+    "knowledgeGap": true,
+    "notes": "KB has no verified benefit rules; should not invent"
+  },
+  {
+    "id": "unknown-tariff-042",
+    "category": "no-answer",
+    "query": "какой тариф на отопление в моем доме",
+    "language": "ru",
+    "shouldRefuseOrFallback": true,
+    "knowledgeGap": true
+  },
+  {
+    "id": "unknown-personal-debt-043",
+    "category": "no-answer",
+    "query": "сколько у меня долг по лицевому счету 123456",
+    "language": "ru",
+    "shouldRefuseOrFallback": true,
+    "knowledgeGap": true
+  },
+  {
+    "id": "unknown-subsidy-044",
+    "category": "no-answer",
+    "query": "как оформить жилищную помощь пенсионеру",
+    "language": "ru",
+    "shouldRefuseOrFallback": true,
+    "knowledgeGap": true
+  },
+  {
+    "id": "out-domain-045",
+    "category": "out-of-domain",
+    "query": "кто выиграл чемпионат мира",
+    "language": "ru",
+    "shouldRefuseOrFallback": true
+  },
+  {
+    "id": "out-domain-046",
+    "category": "out-of-domain",
+    "query": "посоветуй хороший ресторан в астане",
+    "language": "ru",
+    "shouldRefuseOrFallback": true
+  },
+  {
+    "id": "out-domain-047",
+    "category": "out-of-domain",
+    "query": "как купить биткоин",
+    "language": "ru",
+    "shouldRefuseOrFallback": true
+  },
+  {
+    "id": "out-domain-048",
+    "category": "out-of-domain",
+    "query": "напиши сочинение по литературе",
+    "language": "ru",
+    "shouldRefuseOrFallback": true
+  },
+  {
+    "id": "ru-support-049",
+    "category": "ru",
+    "query": "куда звонить по коммунальным вопросам",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Телефон поддержки 109", "Куда обращаться по коммунальным вопросам", "Контактные центры и поддержка пользователей"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "ru-tech-050",
+    "category": "ru",
+    "query": "сайт зависает куда писать",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Куда писать по технической ошибке", "Что приложить к технической ошибке"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "ru-payment-error-051",
+    "category": "ru",
+    "query": "ошибся при оплате квитанции",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["ОШИБСЯ ПРИ ОПЛАТЕ КВИТАНЦИИ", "Ошибочный платеж и возврат", "Что делать при ошибочной оплате"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "ru-status-052",
+    "category": "ru",
+    "query": "как проверить статус заявки",
+    "language": "ru",
+    "expectedKnowledgeTitles": ["Как проверить статус заявки"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "kk-payment-053",
+    "category": "kk",
+    "query": "Kaspi арқылы ЕПД төлеуге бола ма?",
+    "language": "kk",
+    "expectedKnowledgeTitles": ["Оплата ЕПД через Kaspi", "Оплата ЕПД"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "kk-meter-054",
+    "category": "kk",
+    "query": "жарық көрсеткішін қайда жіберемін",
+    "language": "kk",
+    "expectedKnowledgeTitles": ["Передача показаний электроэнергии", "Как передать показания счетчика"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "kk-receipt-055",
+    "category": "kk",
+    "query": "түбіртек келмеді",
+    "language": "kk",
+    "expectedKnowledgeTitles": ["КОГДА МЫ ПОЛУЧИМ КВИТАНЦИЮ?", "Доставка квитанций"],
+    "shouldAnswer": true
+  },
+  {
+    "id": "kk-account-056",
+    "category": "kk",
+    "query": "пәтер сатып алдым дербес шотты білмеймін",
+    "language": "kk",
+    "expectedKnowledgeTitles": ["Как узнать номер лицевого счета", "Лицевой счет"],
+    "expectedIntent": "resident-intent-new-owner-account",
+    "shouldAskClarification": true
+  },
+  {
+    "id": "kk-tech-057",
+    "category": "kk",
+    "query": "сайт жұмыс істемей тұр",
+    "language": "kk",
+    "expectedKnowledgeTitles": ["Куда писать по технической ошибке", "Что приложить к технической ошибке"],
+    "shouldAskClarification": true
+  },
+  {
+    "id": "kk-out-domain-058",
+    "category": "kk",
+    "query": "ауа райы қандай",
+    "language": "kk",
+    "shouldRefuseOrFallback": true
+  },
+  {
+    "id": "standard-small-talk-059",
+    "category": "out-of-domain",
+    "query": "привет",
+    "language": "ru",
+    "expectedIntent": "small-talk",
+    "shouldAnswer": true,
+    "notes": "should bypass retrieval in chat"
+  },
+  {
+    "id": "standard-capabilities-060",
+    "category": "out-of-domain",
+    "query": "что ты умеешь",
+    "language": "ru",
+    "expectedIntent": "small-talk",
+    "shouldAnswer": true
+  }
+]

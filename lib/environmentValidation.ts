@@ -11,6 +11,8 @@ export const OPTIONAL_ENVIRONMENT_VARIABLES = [
   "OPENAI_ANALYSIS_MODEL",
   "RESEND_API_KEY",
   "MAIL_FROM",
+  "RAG_PIPELINE_VERSION",
+  "VISITOR_TOKEN_SECRET",
 ] as const;
 
 export type EnvironmentIssue = {

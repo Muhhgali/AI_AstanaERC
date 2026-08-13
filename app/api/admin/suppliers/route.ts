@@ -2,7 +2,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
-import { getSupabaseAnonKey, getSupabaseProjectUrl } from "@/lib/supabaseEnv";
+import { getSupabaseProjectUrl } from "@/lib/supabaseEnv";
+import { requireAdmin } from "@/lib/auth/requireAdmin";
 
 type SupplierItem = {
   supplierCode: number;
@@ -40,21 +41,7 @@ const MANAGERS_FILE = path.join(
 );
 const SOURCE_DATE = "2026-06-25";
 
-let authClient: ReturnType<typeof createClient<any>> | null = null;
 let adminClient: ReturnType<typeof createClient<any>> | null = null;
-
-function getAuthClient() {
-  const supabaseUrl = getSupabaseProjectUrl();
-  const supabaseAnonKey = getSupabaseAnonKey();
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error("Missing SUPABASE_URL or SUPABASE_ANON_KEY");
-  }
-
-  authClient ??= createClient<any>(supabaseUrl, supabaseAnonKey);
-
-  return authClient;
-}
 
 function getAdminClient() {
   const supabaseUrl = getSupabaseProjectUrl();
@@ -69,26 +56,6 @@ function getAdminClient() {
   );
 
   return adminClient;
-}
-
-async function requireUser(req: Request) {
-  const authHeader = req.headers.get("authorization");
-  const token = authHeader?.replace("Bearer ", "");
-
-  if (!token) {
-    return null;
-  }
-
-  const {
-    data: { user },
-    error,
-  } = await getAuthClient().auth.getUser(token);
-
-  if (error || !user) {
-    return null;
-  }
-
-  return user;
 }
 
 function cleanText(value: unknown) {
@@ -266,13 +233,10 @@ async function loadSuppliers() {
 }
 
 export async function GET(req: Request) {
-  const user = await requireUser(req);
+  const authorization = await requireAdmin(req);
 
-  if (!user) {
-    return Response.json(
-      { message: "Сессия администратора не прошла проверку." },
-      { status: 401 }
-    );
+  if (!authorization.ok) {
+    return authorization.response;
   }
 
   try {
@@ -292,13 +256,10 @@ export async function GET(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const user = await requireUser(req);
+  const authorization = await requireAdmin(req);
 
-  if (!user) {
-    return Response.json(
-      { message: "Сессия администратора не прошла проверку." },
-      { status: 401 }
-    );
+  if (!authorization.ok) {
+    return authorization.response;
   }
 
   try {

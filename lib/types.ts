@@ -22,6 +22,9 @@ export type ChatMessage = {
   appealForm?: boolean;
   appointmentForm?: boolean;
   operatorHandoff?: OperatorHandoff;
+  activeDocumentId?: string;
+  documentId?: string;
+  documentStatus?: string;
 };
 
 export type ChatResponse = {
@@ -36,6 +39,10 @@ export type ChatResponse = {
   appealForm?: boolean;
   appointmentForm?: boolean;
   operatorHandoff?: OperatorHandoff;
+  activeDocumentId?: string;
+  documentId?: string;
+  status?: string;
+  documentType?: string;
 };
 
 export type ChatBodyMessage = {

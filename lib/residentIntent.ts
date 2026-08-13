@@ -1,7 +1,10 @@
 export type ResidentLanguage = "ru" | "kk";
 
 export type ResidentIntentKind =
+  | "technical-support-contact"
+  | "multi-intent-payment-meter"
   | "meter-submission-failure"
+  | "meter-vague-problem"
   | "new-owner-account"
   | "ownership-account-change"
   | "disputed-service-charge"
@@ -61,6 +64,38 @@ function meterSubmissionFailureAnswer(language: ResidentLanguage) {
     "Правильно понимаю: показания не отправляются через сайт, то есть проблема не в том, где их передать, а в самой отправке.",
     "Повторно предлагать уже проверенные вами ссылки не буду. Напишите, что происходит после нажатия кнопки: появляется текст ошибки или ничего не происходит? Если возможно, приложите скриншот без личных данных.",
     "Ниже указан контакт технической поддержки.",
+  ].join("\n");
+}
+
+function multiIntentPaymentMeterAnswer(language: ResidentLanguage) {
+  if (language === "kk") {
+    return [
+      "Сұрағыңызда екі бөлек мәселе бар екенін көріп тұрмын: төлемнің көрінбеуі және есептегіш көрсеткіштерінің жіберілмеуі.",
+      "1. Төлем бойынша: төлем күні мен тәсілін, сондай-ақ берешек қай жолда тұрғанын жазыңыз. Чек болса, карта деректерін жауып тіркеңіз.",
+      "2. Көрсеткіш бойынша: сайтта жібергенде не болатынын нақтылаңыз — қате мәтіні шыға ма, әлде батырма әрекет етпей ме?",
+      "Алдымен қай мәселені қараймыз: төлем бе, әлде көрсеткіш жіберу ме?",
+    ].join("\n");
+  }
+
+  return [
+    "Вижу две отдельные проблемы: платёж не отразился и показания не отправляются.",
+    "1. По платежу: напишите дату и способ оплаты, а также в какой строке квитанции остался долг. Чек можно приложить, закрыв данные карты.",
+    "2. По показаниям: уточните, что происходит на сайте после отправки — появляется текст ошибки или ничего не происходит?",
+    "С чего начнём: с платежа или с показаний?",
+  ].join("\n");
+}
+
+function meterVagueProblemAnswer(language: ResidentLanguage) {
+  if (language === "kk") {
+    return [
+      "Есептегіш бойынша мәселе екенін түсіндім.",
+      "Нақтылап жіберіңізші: ағымдағы көрсеткішті бергіңіз келе ме, бұрын жіберілген көрсеткішті түзеткіңіз келе ме, әлде сайтта көрсеткіш жіберілмей жатыр ма?",
+    ].join("\n");
+  }
+
+  return [
+    "Понял, речь о счётчике.",
+    "Уточните, пожалуйста: вы хотите передать текущие показания, исправить уже отправленные показания или они не отправляются на сайте?",
   ].join("\n");
 }
 
@@ -131,16 +166,32 @@ function benefitEligibilityAnswer(language: ResidentLanguage) {
 function uncreditedPaymentAnswer(language: ResidentLanguage) {
   if (language === "kk") {
     return [
-      "Дұрыс түсіндім: өткен айдың төлемі кеш жасалған, ал қазір ол берешек ретінде әлі көрініп тұр.",
+      "Дұрыс түсіндім: төлем жасадыңыз, бірақ сома ЕПД ішінде әлі берешек ретінде көрініп тұр.",
       "Қайта төлем жасамас бұрын төлемнің есепке алынғанын тексерген дұрыс. Төлем күнін, төлеу тәсілін және түбіртекте берешек қай жолда тұрғанын жазыңыз; чек болса, карта деректерін жауып тіркеңіз.",
-      "Сонда бұл кеш көрсетілген төлем бе, әлде жеткізушіге нақтылау қажет пе — ажыратуға болады.",
+      "Сонда төлем әлі көрінбей тұр ма, басқа кезеңге түсті ме, әлде жеткізушіден нақтылау қажет пе — ажыратуға болады.",
     ].join("\n");
   }
 
   return [
-    "Правильно понимаю: прошлый месяц вы оплатили с опозданием, но эта сумма всё ещё отображается как долг в новом ЕПД.",
+    "Правильно понимаю: вы оплатили, но сумма всё ещё отображается как долг в ЕПД.",
     "Перед повторной оплатой лучше проверить, был ли платёж зачтён. Напишите дату и способ оплаты, а также в какой строке квитанции остался долг; чек можно приложить, закрыв данные карты.",
-    "После этого можно понять, платёж просто отразился позже или требуется проверка у поставщика.",
+    "После этого можно понять, платёж ещё не отразился, попал в другой период или требуется проверка у поставщика.",
+  ].join("\n");
+}
+
+function technicalSupportContactAnswer(language: ResidentLanguage) {
+  if (language === "kk") {
+    return [
+      "Техникалық қате бойынша WhatsApp нөміріне жазыңыз: +7-777-003-3013.",
+      "Бұл нөмір тек WhatsApp хабарламалары үшін, қоңырау қабылданбайды.",
+      "Хабарламаға қатенің скриншотын, қай жерде болғанын (сайт, жеке кабинет, виджет немесе форма), күнін/уақытын және қысқаша сипаттамасын қосыңыз. Жеке деректерді ашық жібермеген дұрыс.",
+    ].join("\n");
+  }
+
+  return [
+    "По технической ошибке напишите в WhatsApp: +7-777-003-3013.",
+    "Этот номер только для сообщений WhatsApp, звонки не принимаются.",
+    "К сообщению лучше приложить скриншот ошибки, где она возникла (сайт, личный кабинет, виджет или форма), дату/время и короткое описание действия. Личные данные в открытый чат лучше не отправлять.",
   ].join("\n");
 }
 
@@ -156,6 +207,7 @@ export function hasResidentProblemSignal(question: string) {
     "не принимает",
     "не прош",
     "ошиб",
+    "проблем",
     "неверн",
     "неправил",
     "почему",
@@ -193,6 +245,64 @@ export function resolveResidentIntent(
 ): ResidentIntentResolution | null {
   const text = normalizeResidentText(question);
 
+  const hasTechnicalContext = hasAny(text, [
+    "техническ",
+    "техподдерж",
+    "тех поддерж",
+    "сайт",
+    "личный кабинет",
+    "кабинет",
+    "виджет",
+    "форма",
+    "бот",
+    "чат",
+    "авторизац",
+    "логин",
+    "парол",
+    "смс",
+    "sms",
+    "қате",
+    "техникалық",
+    "жеке кабинет",
+  ]);
+  const hasTechnicalIssue = hasAny(text, [
+    "ошиб",
+    "не работает",
+    "не открывается",
+    "не отправ",
+    "не получается",
+    "завис",
+    "слом",
+    "қате",
+    "ашылмай",
+    "жұмыс істем",
+    "жіберілмей",
+  ]);
+  const asksForSupportContact = hasAny(text, [
+    "куда писать",
+    "куда обратиться",
+    "куда написать",
+    "кому писать",
+    "как связаться",
+    "контакт",
+    "номер",
+    "whatsapp",
+    "ватсап",
+    "поддержк",
+    "техподдерж",
+    "қайда жаз",
+    "кімге жаз",
+    "байланыс",
+  ]);
+
+  if (hasTechnicalContext && hasTechnicalIssue && asksForSupportContact) {
+    return buildResolution(
+      "technical-support-contact",
+      technicalSupportContactAnswer(language),
+      { support: "technical" }
+    );
+  }
+
   const hasMeterContext = hasAny(text, [
     "показан",
     "счетчик",
@@ -225,20 +335,12 @@ export function resolveResidentIntent(
     "жұмыс істем",
     "қате",
   ]);
-
-  if (hasMeterContext && hasSubmissionContext && hasFailureContext) {
-    return buildResolution(
-      "meter-submission-failure",
-      meterSubmissionFailureAnswer(language),
-      { support: "technical" }
-    );
-  }
-
   const hasPaymentContext = hasAny(text, [
     "оплат",
     "платеж",
     "заплат",
     "чек",
+    "деньги",
     "төле",
     "төлем",
   ]);
@@ -261,6 +363,36 @@ export function resolveResidentIntent(
     "түспе",
     "ескерілм",
   ]);
+
+  if (
+    hasMeterContext &&
+    hasSubmissionContext &&
+    hasFailureContext &&
+    hasPaymentContext &&
+    hasUncreditedContext
+  ) {
+    return buildResolution(
+      "multi-intent-payment-meter",
+      multiIntentPaymentMeterAnswer(language),
+      { support: "technical" }
+    );
+  }
+
+  if (hasMeterContext && hasSubmissionContext && hasFailureContext) {
+    return buildResolution(
+      "meter-submission-failure",
+      meterSubmissionFailureAnswer(language),
+      { support: "technical" }
+    );
+  }
+
+  if (hasMeterContext && hasAny(text, ["проблем", "мәселе"])) {
+    return buildResolution(
+      "meter-vague-problem",
+      meterVagueProblemAnswer(language),
+      { needsKnowledgeGap: true }
+    );
+  }
 
   if (hasPaymentContext && hasUncreditedContext) {
     return buildResolution(

@@ -2,18 +2,27 @@
 import { createClient } from "@supabase/supabase-js";
 import { getSupabaseProjectUrl } from "@/lib/supabaseEnv";
 import { enforceRateLimit, RATE_LIMIT_POLICIES } from "@/lib/rateLimit";
+import {
+  getOrCreateVisitorOwnership,
+  getOwnedConversationId,
+  jsonWithVisitorOwnership,
+} from "@/lib/security/visitorOwnership";
+import {
+  buildReceiptSummary,
+  classifyDocument,
+  extractReceiptStructuredData,
+} from "@/lib/documents/receiptExtraction";
+import { NativePdfExtractor } from "@/lib/documents/extraction";
+import {
+  createResidentDocument,
+  isMissingDocumentsTable,
+  updateResidentDocument,
+  uploadResidentDocumentFile,
+} from "@/lib/documents/repository";
+import { validatePdfFile } from "@/lib/documents/validation";
+import type { ChatLanguage } from "@/lib/types";
 
 let adminClient: ReturnType<typeof createClient<any>> | null = null;
-
-type ChatLanguage = "ru" | "kk";
-
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const ALLOWED_TYPES = new Set([
-  "application/pdf",
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-]);
 
 function getAdminClient() {
   const supabaseUrl = getSupabaseProjectUrl();
@@ -34,123 +43,234 @@ function normalizeLanguage(value: FormDataEntryValue | null): ChatLanguage {
   return value === "kk" ? "kk" : "ru";
 }
 
-function isMissingTable(error: { code?: string; message?: string }) {
-  return (
-    error.code === "PGRST205" ||
-    Boolean(error.message?.includes("receipt_analysis_requests"))
-  );
+function suggestedQuestions(language: ChatLanguage) {
+  return language === "kk"
+    ? [
+        "Қай кезең көрсетілген?",
+        "Қарыз қай жерде?",
+        "Қандай сома төлеу керек?",
+      ]
+    : [
+        "Какой период указан?",
+        "Где здесь долг?",
+        "Почему такая сумма?",
+      ];
 }
 
-function formatSize(size: number) {
-  if (size < 1024 * 1024) {
-    return `${Math.max(1, Math.round(size / 1024))} КБ`;
+async function saveLegacyReceiptRequest(params: {
+  conversationId: string | null;
+  visitorId: string;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  summary: string;
+}) {
+  const { error } = await getAdminClient()
+    .from("receipt_analysis_requests")
+    .insert({
+      conversation_id: params.conversationId,
+      visitor_id: params.visitorId,
+      file_name: params.fileName,
+      file_type: params.fileType,
+      file_size: params.fileSize,
+      status: "done",
+      analysis_summary: params.summary,
+    });
+
+  if (error && !error.message?.includes("receipt_analysis_requests")) {
+    console.warn("LEGACY RECEIPT REQUEST SAVE SKIPPED:", error);
   }
-
-  return `${(size / 1024 / 1024).toFixed(1)} МБ`;
-}
-
-function buildMessage(language: ChatLanguage, file: File, saved: boolean) {
-  if (language === "kk") {
-    return [
-      `Файл қабылданды: ${file.name} (${formatSize(file.size)}).`,
-      saved
-        ? "Оны админкадағы квитанцияны тексеру кезегіне қостым."
-        : "Файл тексерілді, бірақ квитанциялар кестесі әлі қосылмаған.",
-      "Қазір автоматты толық OCR емес, қауіпсіз MVP-тексеру жұмыс істейді: файл түрі, көлемі және операторға қандай деректерді қарау керегі белгіленеді.",
-      "Тексеру кезінде дербес шотты, кезеңді, төлем күнін, соманы және 25-інен кейінгі төлем бар-жоғын салыстырыңыз.",
-    ].join("\n");
-  }
-
-  return [
-    `Файл принят: ${file.name} (${formatSize(file.size)}).`,
-    saved
-      ? "Я добавил его в очередь проверки квитанций для админки."
-      : "Файл проверен, но таблица квитанций еще не подключена.",
-    "Сейчас работает безопасный MVP-слой: проверка типа/размера файла и подсказка оператору, какие поля сверить. Полный OCR можно подключить следующим этапом.",
-    "При проверке сверяйте лицевой счет, период, дату оплаты, сумму и ситуацию с оплатой после 25 числа.",
-  ].join("\n");
 }
 
 export async function POST(req: Request) {
+  const visitorOwnership = getOrCreateVisitorOwnership(req);
+  const jsonResponse = (body: unknown, init?: ResponseInit) =>
+    jsonWithVisitorOwnership(body, visitorOwnership, init);
   const rateLimited = enforceRateLimit(
     req,
     RATE_LIMIT_POLICIES.documentAnalysis
   );
 
   if (rateLimited) {
+    if (visitorOwnership.cookieHeader) {
+      rateLimited.headers.append("Set-Cookie", visitorOwnership.cookieHeader);
+    }
+
     return rateLimited;
   }
 
   const formData = await req.formData();
   const file = formData.get("file");
   const language = normalizeLanguage(formData.get("language"));
+  const validation = await validatePdfFile(file);
 
-  if (!(file instanceof File)) {
-    return Response.json({ message: "file is required" }, { status: 400 });
+  if (!validation.ok) {
+    return jsonResponse({ message: validation.message }, { status: 400 });
   }
 
-  if (!ALLOWED_TYPES.has(file.type)) {
-    return Response.json(
-      {
-        message:
-          language === "kk"
-            ? "PDF, JPG, PNG немесе WEBP файлын жүктеңіз."
-            : "Загрузите PDF, JPG, PNG или WEBP файл.",
-      },
-      { status: 400 }
-    );
-  }
+  const typedFile = file as File;
+  const conversationId = await getOwnedConversationId(
+    getAdminClient(),
+    formData.get("conversationId"),
+    visitorOwnership.visitorId
+  );
 
-  if (file.size > MAX_FILE_SIZE) {
-    return Response.json(
-      {
-        message:
-          language === "kk"
-            ? "Файл 10 МБ-тан аспауы керек."
-            : "Файл должен быть не больше 10 МБ.",
-      },
-      { status: 400 }
-    );
-  }
-
-  let saved = false;
+  let documentId: string | undefined;
 
   try {
-    const { error } = await getAdminClient()
-      .from("receipt_analysis_requests")
-      .insert({
-        conversation_id:
-          typeof formData.get("conversationId") === "string"
-            ? formData.get("conversationId")
-            : null,
-        visitor_id:
-          typeof formData.get("visitorId") === "string"
-            ? formData.get("visitorId")
-            : null,
-        file_name: file.name,
-        file_type: file.type,
-        file_size: file.size,
-        status: "new",
-        analysis_summary: buildMessage(language, file, true),
-      });
-
-    if (error) {
-      if (!isMissingTable(error)) {
-        throw error;
-      }
-    } else {
-      saved = true;
-    }
+    documentId = await createResidentDocument({
+      supabase: getAdminClient(),
+      visitorId: visitorOwnership.visitorId,
+      conversationId,
+      fileName: typedFile.name,
+      fileType: typedFile.type,
+      fileSize: typedFile.size,
+      fileHash: validation.hash,
+    });
   } catch (error) {
-    console.warn("RECEIPT ANALYSIS SAVE SKIPPED:", error);
+    if (isMissingDocumentsTable(error)) {
+      return jsonResponse({
+        message:
+          "Документ принят, но Stage 5 таблица resident_documents ещё не применена в Supabase. Администратору нужно выполнить миграцию Document Intelligence.",
+        source: "document-setup-required",
+        setupRequired: true,
+      });
+    }
+
+    throw error;
   }
 
-  return Response.json({
-    message: buildMessage(language, file, saved),
-    source: "receipt-analysis",
-    suggestedQuestions:
-      language === "kk"
-        ? ["Төлем 25-інен кейін түсті ме?", "Сома неге екі есе?", "Түбіртекті тексеру"]
-        : ["Оплата после 25-го?", "Почему сумма двойная?", "Проверить квитанцию"],
-  });
+  try {
+    const storagePath = await uploadResidentDocumentFile({
+      supabase: getAdminClient(),
+      visitorId: visitorOwnership.visitorId,
+      documentId,
+      fileHash: validation.hash,
+      bytes: validation.bytes,
+    });
+    await updateResidentDocument({
+      supabase: getAdminClient(),
+      documentId,
+      patch: {
+        storage_path: storagePath,
+        status: "extracting",
+      },
+    });
+
+    const extraction = await new NativePdfExtractor().extract(validation.bytes);
+
+    if (extraction.status === "failed") {
+      await updateResidentDocument({
+        supabase: getAdminClient(),
+        documentId,
+        patch: {
+          status: "failed",
+          extraction_method: extraction.method,
+          page_count: extraction.pageCount,
+          warnings: extraction.warnings,
+          error_message: extraction.errorMessage,
+        },
+      });
+
+      return jsonResponse(
+        {
+          documentId,
+          message: extraction.errorMessage,
+          source: "document-analysis",
+          status: "failed",
+          suggestedQuestions: [],
+        },
+        { status: 400 }
+      );
+    }
+
+    if (extraction.status === "ocr_required") {
+      const summary = buildReceiptSummary(
+        {
+          documentType: "unknown",
+          suppliers: [],
+          lineItems: [],
+          missingFields: ["text"],
+          warnings: extraction.warnings,
+        },
+        "ocr_required"
+      );
+
+      await updateResidentDocument({
+        supabase: getAdminClient(),
+        documentId,
+        patch: {
+          status: "ocr_required",
+          extraction_method: "none",
+          page_count: extraction.pageCount,
+          warnings: extraction.warnings,
+          error_message: "OCR_REQUIRED",
+        },
+      });
+
+      return jsonResponse({
+        documentId,
+        message: summary,
+        source: "document-analysis",
+        status: "ocr_required",
+        suggestedQuestions: [],
+      });
+    }
+
+    const structured = extractReceiptStructuredData(extraction.text);
+    const documentType = classifyDocument(extraction.text);
+    structured.documentType = documentType;
+    const summary = buildReceiptSummary(structured, "ready");
+
+    await updateResidentDocument({
+      supabase: getAdminClient(),
+      documentId,
+      patch: {
+        status: "ready",
+        document_type: documentType,
+        extraction_method: extraction.method,
+        page_count: extraction.pageCount,
+        extracted_text: extraction.text.slice(0, 30_000),
+        structured_result: structured,
+        warnings: [...extraction.warnings, ...structured.warnings],
+      },
+    });
+    await saveLegacyReceiptRequest({
+      conversationId,
+      visitorId: visitorOwnership.visitorId,
+      fileName: typedFile.name,
+      fileType: typedFile.type,
+      fileSize: typedFile.size,
+      summary,
+    });
+
+    return jsonResponse({
+      documentId,
+      activeDocumentId: documentId,
+      message: summary,
+      source: "document-analysis",
+      status: "ready",
+      documentType,
+      structuredResult: structured,
+      suggestedQuestions: suggestedQuestions(language),
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Не удалось обработать PDF-квитанцию.";
+
+    if (documentId) {
+      await updateResidentDocument({
+        supabase: getAdminClient(),
+        documentId,
+        patch: {
+          status: "failed",
+          error_message: message,
+        },
+      }).catch(() => undefined);
+    }
+
+    return jsonResponse({ message }, { status: 500 });
+  }
 }

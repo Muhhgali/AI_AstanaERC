@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+
+vi.mock("server-only", () => ({}));
+
 import {
   authorizeAdminRequest,
   hasTrustedAdminRole,
@@ -36,6 +39,14 @@ describe("admin authorization", () => {
   it("allows an app_metadata admin", async () => {
     const result = await authorizeAdminRequest(request({ token: "valid" }), async () => ({
       user: { id: "admin-1", app_metadata: { role: "admin" } },
+    }));
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("allows an app_metadata roles array admin", async () => {
+    const result = await authorizeAdminRequest(request({ token: "valid" }), async () => ({
+      user: { id: "admin-2", app_metadata: { roles: ["support", "admin"] } },
     }));
 
     expect(result.ok).toBe(true);

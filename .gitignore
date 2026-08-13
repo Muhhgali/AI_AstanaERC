@@ -14,6 +14,12 @@
 # testing
 /coverage
 
+# private resident document fixtures - never commit real bills/receipts
+/private-documents/
+/fixtures/private-documents/
+/data/private-documents/
+*.resident.pdf
+
 # next.js
 /.next/
 /.open-next/

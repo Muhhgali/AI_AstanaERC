@@ -1,0 +1,663 @@
+[
+  {
+    "id": "mt-001",
+    "source": "historical",
+    "previousUser": "Где получить дубликат квитанции?",
+    "previousAssistant": "Дубликат квитанции можно получить, обратившись в офис нашей компании с документом, удостоверяющим личность, или через личный кабинет на официальном сайте. Также можно подать заявку по телефону горячей линии.",
+    "followUp": "где могу взять квитанции на[ADDRESS]?",
+    "previousContext": [
+      {
+        "role": "user",
+        "content": "Где получить дубликат квитанции?"
+      },
+      {
+        "role": "assistant",
+        "content": "Дубликат квитанции можно получить, обратившись в офис нашей компании с документом, удостоверяющим личность, или через личный кабинет на официальном сайте. Также можно подать заявку по телефону горячей линии."
+      }
+    ],
+    "language": "ru",
+    "expectedReferent": "new-topic",
+    "expectedBehavior": "answer",
+    "expectedIntentHints": [
+      "receipt"
+    ],
+    "forbiddenIntentHints": [],
+    "piiRedactions": [
+      "[ADDRESS]"
+    ],
+    "notes": "Real topic shift candidate."
+  },
+  {
+    "id": "mt-002",
+    "source": "historical",
+    "previousUser": "квитанция вышла?",
+    "previousAssistant": "Электронные квитанции становятся доступны[ADDRESS], квитанция может еще не быть сформирована.",
+    "followUp": "Куда передавать показания электроэнергии?",
+    "previousContext": [
+      {
+        "role": "user",
+        "content": "квитанция вышла?"
+      },
+      {
+        "role": "assistant",
+        "content": "Электронные квитанции становятся доступны[ADDRESS], квитанция может еще не быть сформирована."
+      }
+    ],
+    "language": "ru",
+    "expectedReferent": "new-topic",
+    "expectedBehavior": "clarify",
+    "expectedIntentHints": [
+      "meter"
+    ],
+    "forbiddenIntentHints": [
+      "receipt"
+    ],
+    "piiRedactions": [
+      "[ADDRESS]"
+    ],
+    "notes": "Real topic shift candidate."
+  },
+  {
+    "id": "mt-003",
+    "source": "historical",
+    "previousUser": "Адрес астана ерц",
+    "previousAssistant": "Адрес офиса Астана-ЕРЦ: [ADDRESS], [ADDRESS], [ADDRESS], БЦ «Аффари».",
+    "followUp": "куда передать показания",
+    "previousContext": [
+      {
+        "role": "user",
+        "content": "Адрес астана ерц"
+      },
+      {
+        "role": "assistant",
+        "content": "Адрес офиса Астана-ЕРЦ: [ADDRESS], [ADDRESS], [ADDRESS], БЦ «Аффари»."
+      }
+    ],
+    "language": "ru",
+    "expectedReferent": "new-topic",
+    "expectedBehavior": "clarify",
+    "expectedIntentHints": [
+      "meter"
+    ],
+    "forbiddenIntentHints": [
+      "support"
+    ],
+    "piiRedactions": [
+      "[ADDRESS]"
+    ],
+    "notes": "Real topic shift candidate."
+  },
+  {
+    "id": "mt-004",
+    "source": "historical",
+    "previousUser": "Кто менеджер поставщика по БИН [PHONE]?",
+    "previousAssistant": "Поставщик: ТОО Астана Су Арнасы БИН: [PHONE]Ответственный менеджер: Ай[ADDRESS]",
+    "followUp": "ошибочно передал показания",
+    "previousContext": [
+      {
+        "role": "user",
+        "content": "Кто менеджер поставщика по БИН [PHONE]?"
+      },
+      {
+        "role": "assistant",
+        "content": "Поставщик: ТОО Астана Су Арнасы БИН: [PHONE]Ответственный менеджер: Ай[ADDRESS]"
+      }
+    ],
+    "language": "ru",
+    "expectedReferent": "new-topic",
+    "expectedBehavior": "clarify",
+    "expectedIntentHints": [
+      "meter",
+      "technical"
+    ],
+    "forbiddenIntentHints": [
+      "supplier"
+    ],
+    "piiRedactions": [
+      "[ADDRESS]",
+      "[EMAIL]",
+      "[PHONE]"
+    ],
+    "notes": "Real topic shift candidate."
+  },
+  {
+    "id": "mt-005",
+    "source": "historical",
+    "previousUser": "ошибочно передал показания",
+    "previousAssistant": "Чтобы создать заявку на корректировку показаний,[ADDRESS], номер счетчика,[ADDRESS]",
+    "followUp": "я не[ADDRESS]",
+    "previousContext": [
+      {
+        "role": "user",
+        "content": "ошибочно передал показания"
+      },
+      {
+        "role": "assistant",
+        "content": "Чтобы создать заявку на корректировку показаний,[ADDRESS], номер счетчика,[ADDRESS]"
+      }
+    ],
+    "language": "ru",
+    "expectedReferent": "previous-topic",
+    "expectedBehavior": "clarify",
+    "expectedIntentHints": [
+      "meter",
+      "technical"
+    ],
+    "forbiddenIntentHints": [],
+    "piiRedactions": [
+      "[ADDRESS]"
+    ],
+    "notes": "Real follow-up candidate."
+  },
+  {
+    "id": "mt-006",
+    "source": "historical",
+    "previousUser": "27 лицевой счет и по астана су арнасы, счетчик [ACCOUNT_NUMBER] и должно быть 1156 показания",
+    "previousAssistant": "Чтобы создать заявку на корректировку показаний, нужно уточнить: - вид услуги или счетчика (электроэнергия, холодная вода, горячая вода, подогрев воды или газ) Удобно от[ADDRESS], вид услуги, номер счетчика,[ADDRESS], холодная вода, горячая вода, подогрев воды или газ.",
+    "followUp": "холодная вода",
+    "previousContext": [
+      {
+        "role": "user",
+        "content": "27 лицевой счет и по астана су арнасы, счетчик [ACCOUNT_NUMBER] и должно быть 1156 показания"
+      },
+      {
+        "role": "assistant",
+        "content": "Чтобы создать заявку на корректировку показаний, нужно уточнить: - вид услуги или счетчика (электроэнергия, холодная вода, горячая вода, подогрев воды или газ) Удобно от[ADDRESS], вид услуги, номер счетчика,[ADDRESS], холодная вода, горячая вода, подогрев воды или газ."
+      }
+    ],
+    "language": "ru",
+    "expectedReferent": "new-topic",
+    "expectedBehavior": "clarify",
+    "expectedIntentHints": [
+      "meter"
+    ],
+    "forbiddenIntentHints": [
+      "account"
+    ],
+    "piiRedactions": [
+      "[ACCOUNT_NUMBER]",
+      "[ADDRESS]"
+    ],
+    "notes": "Real topic shift candidate."
+  },
+  {
+    "id": "mt-007",
+    "source": "historical",
+    "previousUser": "по[ADDRESS]",
+    "previousAssistant": "К сожалению, точной информации о дальнейших шагах после от[ADDRESS]уточнения статуса и дальнейших действий.",
+    "followUp": "я не[ADDRESS]",
+    "previousContext": [
+      {
+        "role": "user",
+        "content": "по[ADDRESS]"
+      },
+      {
+        "role": "assistant",
+        "content": "К сожалению, точной информации о дальнейших шагах после от[ADDRESS]уточнения статуса и дальнейших действий."
+      }
+    ],
+    "language": "ru",
+    "expectedReferent": "previous-topic",
+    "expectedBehavior": "clarify",
+    "expectedIntentHints": [],
+    "forbiddenIntentHints": [],
+    "piiRedactions": [
+      "[ADDRESS]"
+    ],
+    "notes": "Real follow-up candidate."
+  },
+  {
+    "id": "mt-008",
+    "source": "historical",
+    "previousUser": "Как оплатить ЕПД через Kaspi?",
+    "previousAssistant": "Оплатить ЕПД через Kaspi можно с помощью интернет-банкинга или мобильного[ADDRESS],[ADDRESS], либо по[ADDRESS]",
+    "followUp": "Куда передавать показания электроэнергии?",
+    "previousContext": [
+      {
+        "role": "user",
+        "content": "Как оплатить ЕПД через Kaspi?"
+      },
+      {
+        "role": "assistant",
+        "content": "Оплатить ЕПД через Kaspi можно с помощью интернет-банкинга или мобильного[ADDRESS],[ADDRESS], либо по[ADDRESS]"
+      }
+    ],
+    "language": "ru",
+    "expectedReferent": "new-topic",
+    "expectedBehavior": "clarify",
+    "expectedIntentHints": [
+      "meter"
+    ],
+    "forbiddenIntentHints": [
+      "payment",
+      "receipt"
+    ],
+    "piiRedactions": [
+      "[ADDRESS]"
+    ],
+    "notes": "Real topic shift candidate."
+  },
+  {
+    "id": "mt-009",
+    "source": "historical",
+    "previousUser": "Какой адрес офиса Астана-ЕРЦ?",
+    "previousAssistant": "В базе знаний нет точной информации об адресе офиса Астана-ЕРЦ. Рекомендуем уточнить этот во[ADDRESS]",
+    "followUp": "Когда[ADDRESS]?",
+    "previousContext": [
+      {
+        "role": "user",
+        "content": "Какой адрес офиса Астана-ЕРЦ?"
+      },
+      {
+        "role": "assistant",
+        "content": "В базе знаний нет точной информации об адресе офиса Астана-ЕРЦ. Рекомендуем уточнить этот во[ADDRESS]"
+      }
+    ],
+    "language": "ru",
+    "expectedReferent": "previous-topic",
+    "expectedBehavior": "clarify",
+    "expectedIntentHints": [
+      "support"
+    ],
+    "forbiddenIntentHints": [],
+    "piiRedactions": [
+      "[ADDRESS]"
+    ],
+    "notes": "Real follow-up candidate."
+  },
+  {
+    "id": "mt-010",
+    "source": "historical",
+    "previousUser": "Какой адрес офиса Астана-ЕРЦ?",
+    "previousAssistant": "По этому во[ADDRESS], чтобы не дать неверные данные. Лучше уточнить во[ADDRESS]",
+    "followUp": "Когда[ADDRESS]?",
+    "previousContext": [
+      {
+        "role": "user",
+        "content": "Какой адрес офиса Астана-ЕРЦ?"
+      },
+      {
+        "role": "assistant",
+        "content": "По этому во[ADDRESS], чтобы не дать неверные данные. Лучше уточнить во[ADDRESS]"
+      }
+    ],
+    "language": "ru",
+    "expectedReferent": "previous-topic",
+    "expectedBehavior": "clarify",
+    "expectedIntentHints": [
+      "support"
+    ],
+    "forbiddenIntentHints": [],
+    "piiRedactions": [
+      "[ADDRESS]"
+    ],
+    "notes": "Real follow-up candidate."
+  },
+  {
+    "id": "mt-011",
+    "source": "historical",
+    "previousUser": "Как оплатить ЕПД?",
+    "previousAssistant": "Оплатить ЕПД можно через интернет-банкинг, мобильные[ADDRESS], Halyk Bank, Forte Bank и другие), терминалы оплаты, банковские кассы и почтовые отделения. Для оплаты нужен номер лицевого счета из ЕПД и сумма платежа.[ADDRESS], либо обратитесь в службу поддержки.",
+    "followUp": "Куда обратиться[ADDRESS]?",
+    "previousContext": [
+      {
+        "role": "user",
+        "content": "Как оплатить ЕПД?"
+      },
+      {
+        "role": "assistant",
+        "content": "Оплатить ЕПД можно через интернет-банкинг, мобильные[ADDRESS], Halyk Bank, Forte Bank и другие), терминалы оплаты, банковские кассы и почтовые отделения. Для оплаты нужен номер лицевого счета из ЕПД и сумма платежа.[ADDRESS], либо обратитесь в службу поддержки."
+      }
+    ],
+    "language": "ru",
+    "expectedReferent": "previous-topic",
+    "expectedBehavior": "clarify",
+    "expectedIntentHints": [
+      "payment",
+      "receipt"
+    ],
+    "forbiddenIntentHints": [],
+    "piiRedactions": [
+      "[ADDRESS]"
+    ],
+    "notes": "Real follow-up candidate."
+  },
+  {
+    "id": "mt-012",
+    "source": "historical",
+    "previousUser": "[PHONE]",
+    "previousAssistant": "Поставщик: ОСИ ЖК SOHO 2 Код поставщика: 2829 БИН: [PHONE]Категория: Объединение собственников имущества Район: Есиль Менеджер Астана-ЕРЦ: Запорожская Галина Договор: Д-206 от 06.10.2025 Контакт поставщика: Подгайнов А.Ю. Телефон: [PHONE]Почта: [EMAIL]",
+    "followUp": "оператора мне дайте",
+    "previousContext": [
+      {
+        "role": "user",
+        "content": "[PHONE]"
+      },
+      {
+        "role": "assistant",
+        "content": "Поставщик: ОСИ ЖК SOHO 2 Код поставщика: 2829 БИН: [PHONE]Категория: Объединение собственников имущества Район: Есиль Менеджер Астана-ЕРЦ: Запорожская Галина Договор: Д-206 от 06.10.2025 Контакт поставщика: Подгайнов А.Ю. Телефон: [PHONE]Почта: [EMAIL]"
+      }
+    ],
+    "language": "ru",
+    "expectedReferent": "previous-topic",
+    "expectedBehavior": "clarify",
+    "expectedIntentHints": [],
+    "forbiddenIntentHints": [],
+    "piiRedactions": [
+      "[EMAIL]",
+      "[PHONE]"
+    ],
+    "notes": "Real follow-up candidate."
+  },
+  {
+    "id": "mt-013",
+    "source": "historical",
+    "previousUser": "Как получить дубликат квитанции?",
+    "previousAssistant": "Дубликат квитанцияны алу үшін ыстық желіге хабарласып немесе ресми сайттағы жеке кабинет арқылы өтініш беруге болады. Жеке куәлік пен есеп шот нөмірі қажет. Сонымен қатар, квитанцияның көшірмесін Астана қаласындағы Сәкен Сейф[ADDRESS], 27 мекенжайындағы Қала қызметі орталығынан алуға болады.",
+    "followUp": "Қағаздан бас тарту",
+    "previousContext": [
+      {
+        "role": "user",
+        "content": "Как получить дубликат квитанции?"
+      },
+      {
+        "role": "assistant",
+        "content": "Дубликат квитанцияны алу үшін ыстық желіге хабарласып немесе ресми сайттағы жеке кабинет арқылы өтініш беруге болады. Жеке куәлік пен есеп шот нөмірі қажет. Сонымен қатар, квитанцияның көшірмесін Астана қаласындағы Сәкен Сейф[ADDRESS], 27 мекенжайындағы Қала қызметі орталығынан алуға болады."
+      }
+    ],
+    "language": "kk",
+    "expectedReferent": "previous-topic",
+    "expectedBehavior": "clarify",
+    "expectedIntentHints": [
+      "receipt"
+    ],
+    "forbiddenIntentHints": [],
+    "piiRedactions": [
+      "[ADDRESS]"
+    ],
+    "notes": "Real follow-up candidate."
+  },
+  {
+    "id": "mt-014",
+    "source": "historical",
+    "previousUser": "Помогите разобраться с оплатой и суммой в квитанции",
+    "previousAssistant": "Если сумма в квитанции кажется завышенной или двойной, возможно, оплата за[ADDRESS], и она учтется в следующей квитанции. Квитанции формируются[ADDRESS]ть ошибки,[ADDRESS]",
+    "followUp": "куда обратиться за техническими во[ADDRESS]",
+    "previousContext": [
+      {
+        "role": "user",
+        "content": "Помогите разобраться с оплатой и суммой в квитанции"
+      },
+      {
+        "role": "assistant",
+        "content": "Если сумма в квитанции кажется завышенной или двойной, возможно, оплата за[ADDRESS], и она учтется в следующей квитанции. Квитанции формируются[ADDRESS]ть ошибки,[ADDRESS]"
+      }
+    ],
+    "language": "ru",
+    "expectedReferent": "previous-topic",
+    "expectedBehavior": "clarify",
+    "expectedIntentHints": [
+      "payment",
+      "receipt",
+      "billing"
+    ],
+    "forbiddenIntentHints": [],
+    "piiRedactions": [
+      "[ADDRESS]"
+    ],
+    "notes": "Real follow-up candidate."
+  },
+  {
+    "id": "mt-015",
+    "source": "historical",
+    "previousUser": "Куда передавать показания электроэнергии?",
+    "previousAssistant": "Показания можно передать на сайте Астана ЕРЦ: https://www.aerc.kz/ru/abonentam/readings/. По данным базы, передача показаний доступна с 10 числа месяца по 30/31 число. По Теплотранзиту показания[ADDRESS]",
+    "followUp": "Передать показания",
+    "previousContext": [
+      {
+        "role": "user",
+        "content": "Куда передавать показания электроэнергии?"
+      },
+      {
+        "role": "assistant",
+        "content": "Показания можно передать на сайте Астана ЕРЦ: https://www.aerc.kz/ru/abonentam/readings/. По данным базы, передача показаний доступна с 10 числа месяца по 30/31 число. По Теплотранзиту показания[ADDRESS]"
+      }
+    ],
+    "language": "ru",
+    "expectedReferent": "new-topic",
+    "expectedBehavior": "clarify",
+    "expectedIntentHints": [
+      "meter"
+    ],
+    "forbiddenIntentHints": [],
+    "piiRedactions": [
+      "[ADDRESS]"
+    ],
+    "notes": "Real topic shift candidate."
+  },
+  {
+    "id": "mt-016",
+    "source": "historical",
+    "previousUser": "Ис[ADDRESS]",
+    "previousAssistant": "Заполните форму заявки на корректировку показаний. Обязательные поля: лицевой счет, вид услуги, номер счетчика, верные показания и телефон или email для связи. Вид услуги выберите из списка: Электроэнергия (АстанаРЭК), Холодная вода (Астана Су Арнасы), Горячая вода (Астана Су Арнасы), Подогрев воды (Теплотранзит), Газ (Центральное газоснабжение). Комментарий можно оставить дополнительно.",
+    "followUp": "Какие данные нужны?",
+    "previousContext": [
+      {
+        "role": "user",
+        "content": "Ис[ADDRESS]"
+      },
+      {
+        "role": "assistant",
+        "content": "Заполните форму заявки на корректировку показаний. Обязательные поля: лицевой счет, вид услуги, номер счетчика, верные показания и телефон или email для связи. Вид услуги выберите из списка: Электроэнергия (АстанаРЭК), Холодная вода (Астана Су Арнасы), Горячая вода (Астана Су Арнасы), Подогрев воды (Теплотранзит), Газ (Центральное газоснабжение). Комментарий можно оставить дополнительно."
+      }
+    ],
+    "language": "ru",
+    "expectedReferent": "previous-topic",
+    "expectedBehavior": "clarify",
+    "expectedIntentHints": [],
+    "forbiddenIntentHints": [],
+    "piiRedactions": [
+      "[ADDRESS]"
+    ],
+    "notes": "Real follow-up candidate."
+  },
+  {
+    "id": "mt-017",
+    "source": "historical",
+    "previousUser": "Электронды түбіртек",
+    "previousAssistant": "Бұл сұрақ бойынша базада әзірге нақты тексерілген ақпарат жоқ. Қате мәлімет бермеу үшін жауапты ойдан шығармаймын. Бұл тақырыпты білім базасын толықтыруға белгіледім.",
+    "followUp": "Қағаздан бас тарту",
+    "previousContext": [
+      {
+        "role": "user",
+        "content": "Электронды түбіртек"
+      },
+      {
+        "role": "assistant",
+        "content": "Бұл сұрақ бойынша базада әзірге нақты тексерілген ақпарат жоқ. Қате мәлімет бермеу үшін жауапты ойдан шығармаймын. Бұл тақырыпты білім базасын толықтыруға белгіледім."
+      }
+    ],
+    "language": "kk",
+    "expectedReferent": "previous-topic",
+    "expectedBehavior": "clarify",
+    "expectedIntentHints": [
+      "receipt"
+    ],
+    "forbiddenIntentHints": [],
+    "piiRedactions": [],
+    "notes": "Real follow-up candidate."
+  },
+  {
+    "id": "mt-018",
+    "source": "historical",
+    "previousUser": "Что делать, если оплатил после 25 числа?",
+    "previousAssistant": "[ADDRESS]ета поздней оплаты. Если часть суммы уже была оплачена, вам необходимо оплатить только разницу. Сумму начислений за текущий месяц вы можете посмотреть в расшифровке квитанции и оплатить именно ее с учетом уже внесенного платежа.",
+    "followUp": "Какие данные нужны?",
+    "previousContext": [
+      {
+        "role": "user",
+        "content": "Что делать, если оплатил после 25 числа?"
+      },
+      {
+        "role": "assistant",
+        "content": "[ADDRESS]ета поздней оплаты. Если часть суммы уже была оплачена, вам необходимо оплатить только разницу. Сумму начислений за текущий месяц вы можете посмотреть в расшифровке квитанции и оплатить именно ее с учетом уже внесенного платежа."
+      }
+    ],
+    "language": "ru",
+    "expectedReferent": "previous-topic",
+    "expectedBehavior": "clarify",
+    "expectedIntentHints": [
+      "payment"
+    ],
+    "forbiddenIntentHints": [],
+    "piiRedactions": [
+      "[ADDRESS]"
+    ],
+    "notes": "Real follow-up candidate."
+  },
+  {
+    "id": "mt-019",
+    "source": "historical",
+    "previousUser": "я заплатил но долг остался",
+    "previousAssistant": "Если в квитанции отображается двойная сумма или начисления кажутся завышенными, скорее всего оплата за[ADDRESS]о 11–12 числа каждого месяца. Платежи, поступившие после 25 числа, могут не отразиться в уже сформированной квитанции, однако они сохраняются на вашем лицевом счете и обязательно учитываются[ADDRESS][ADDRESS]",
+    "followUp": "а сколько тогда платить?",
+    "previousContext": [
+      {
+        "role": "user",
+        "content": "я заплатил но долг остался"
+      },
+      {
+        "role": "assistant",
+        "content": "Если в квитанции отображается двойная сумма или начисления кажутся завышенными, скорее всего оплата за[ADDRESS]о 11–12 числа каждого месяца. Платежи, поступившие после 25 числа, могут не отразиться в уже сформированной квитанции, однако они сохраняются на вашем лицевом счете и обязательно учитываются[ADDRESS][ADDRESS]"
+      }
+    ],
+    "language": "ru",
+    "expectedReferent": "new-topic",
+    "expectedBehavior": "clarify",
+    "expectedIntentHints": [
+      "payment"
+    ],
+    "forbiddenIntentHints": [
+      "billing"
+    ],
+    "piiRedactions": [
+      "[ADDRESS]"
+    ],
+    "notes": "Real topic shift candidate."
+  },
+  {
+    "id": "mt-020",
+    "source": "historical",
+    "previousUser": "а сколько тогда платить?",
+    "previousAssistant": "По этому во[ADDRESS], чтобы не дать неверные данные. Тему уже отметил для пополнения базы знаний.",
+    "followUp": "купил квартиру что дальше",
+    "previousContext": [
+      {
+        "role": "user",
+        "content": "а сколько тогда платить?"
+      },
+      {
+        "role": "assistant",
+        "content": "По этому во[ADDRESS], чтобы не дать неверные данные. Тему уже отметил для пополнения базы знаний."
+      }
+    ],
+    "language": "ru",
+    "expectedReferent": "new-topic",
+    "expectedBehavior": "clarify",
+    "expectedIntentHints": [
+      "ownership"
+    ],
+    "forbiddenIntentHints": [
+      "payment"
+    ],
+    "piiRedactions": [
+      "[ADDRESS]"
+    ],
+    "notes": "Real topic shift candidate."
+  },
+  {
+    "id": "mt-021",
+    "source": "synthetic",
+    "previousUser": "У меня проблема со счётчиком",
+    "previousAssistant": "Что нужно сделать со счётчиком: передать текущие показания или исправить уже отправленные?",
+    "followUp": "Квитанция не пришла",
+    "previousContext": [
+      {
+        "role": "user",
+        "content": "У меня проблема со счётчиком"
+      },
+      {
+        "role": "assistant",
+        "content": "Что нужно сделать со счётчиком: передать текущие показания или исправить уже отправленные?"
+      }
+    ],
+    "language": "ru",
+    "expectedReferent": "new-topic",
+    "expectedBehavior": "answer",
+    "expectedIntentHints": [
+      "receipt"
+    ],
+    "forbiddenIntentHints": [
+      "meter"
+    ],
+    "piiRedactions": [],
+    "notes": "Topic shift: meter -> receipt."
+  },
+  {
+    "id": "mt-022",
+    "source": "synthetic",
+    "previousUser": "Оплата не отразилась",
+    "previousAssistant": "Что именно с оплатой: деньги списались или платёж не прошёл?",
+    "followUp": "Какой адрес офиса?",
+    "previousContext": [
+      {
+        "role": "user",
+        "content": "Оплата не отразилась"
+      },
+      {
+        "role": "assistant",
+        "content": "Что именно с оплатой: деньги списались или платёж не прошёл?"
+      }
+    ],
+    "language": "ru",
+    "expectedReferent": "new-topic",
+    "expectedBehavior": "answer",
+    "expectedIntentHints": [
+      "support"
+    ],
+    "forbiddenIntentHints": [
+      "payment",
+      "billing"
+    ],
+    "piiRedactions": [],
+    "notes": "Topic shift: payment -> contact."
+  },
+  {
+    "id": "mt-023",
+    "source": "synthetic",
+    "previousUser": "ТОО Sanat Service",
+    "previousAssistant": "Что именно хотите узнать про ТОО Sanat Service: контакты, услугу или менеджера?",
+    "followUp": "Когда формируется квитанция?",
+    "previousContext": [
+      {
+        "role": "user",
+        "content": "ТОО Sanat Service"
+      },
+      {
+        "role": "assistant",
+        "content": "Что именно хотите узнать про ТОО Sanat Service: контакты, услугу или менеджера?"
+      }
+    ],
+    "language": "ru",
+    "expectedReferent": "new-topic",
+    "expectedBehavior": "answer",
+    "expectedIntentHints": [
+      "receipt"
+    ],
+    "forbiddenIntentHints": [
+      "supplier"
+    ],
+    "piiRedactions": [],
+    "notes": "Topic shift: supplier -> receipt."
+  }
+]

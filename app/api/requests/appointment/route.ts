@@ -3,6 +3,11 @@ import { createClient } from "@supabase/supabase-js";
 import { sendRequestEmail } from "@/lib/requestEmail";
 import { enforceRateLimit, RATE_LIMIT_POLICIES } from "@/lib/rateLimit";
 import { getSupabaseProjectUrl } from "@/lib/supabaseEnv";
+import {
+  getOrCreateVisitorOwnership,
+  getOwnedConversationId,
+  jsonWithVisitorOwnership,
+} from "@/lib/security/visitorOwnership";
 
 const APPOINTMENT_EMAIL_TO = "office.manager@aerc.kz";
 const APPOINTMENT_TIME = "15:00–16:00";
@@ -93,9 +98,16 @@ function getNextDates(weekday: number, baseDate = new Date()) {
 }
 
 export async function POST(req: Request) {
+  const visitorOwnership = getOrCreateVisitorOwnership(req);
+  const jsonResponse = (body: unknown, init?: ResponseInit) =>
+    jsonWithVisitorOwnership(body, visitorOwnership, init);
   const rateLimited = enforceRateLimit(req, RATE_LIMIT_POLICIES.publicMutation);
 
   if (rateLimited) {
+    if (visitorOwnership.cookieHeader) {
+      rateLimited.headers.append("Set-Cookie", visitorOwnership.cookieHeader);
+    }
+
     return rateLimited;
   }
 
@@ -107,32 +119,29 @@ export async function POST(req: Request) {
     const date = String(body?.date ?? "").trim();
     const phone = String(body?.phone ?? "").trim();
     const email = String(body?.email ?? "").trim();
-    const conversationId =
-      typeof body?.conversationId === "string" && body.conversationId
-        ? body.conversationId
-        : null;
-    const visitorId =
-      typeof body?.visitorId === "string" && body.visitorId
-        ? body.visitorId
-        : null;
+    const conversationId = await getOwnedConversationId(
+      getAdminSupabase(),
+      body?.conversationId,
+      visitorOwnership.visitorId
+    );
     const clientDate = parseClientDate(body?.clientDate);
 
     if (!firstName || !lastName || !leaderKey || !date) {
-      return Response.json(
+      return jsonResponse(
         { message: "Заполните имя, фамилию, руководителя и дату приема." },
         { status: 400 }
       );
     }
 
     if (!phone && !email) {
-      return Response.json(
+      return jsonResponse(
         { message: "Укажите телефон или Email." },
         { status: 400 }
       );
     }
 
     if (!isLeaderKey(leaderKey)) {
-      return Response.json(
+      return jsonResponse(
         { message: "Выберите руководителя из списка." },
         { status: 400 }
       );
@@ -142,7 +151,7 @@ export async function POST(req: Request) {
     const allowedDates = getNextDates(leader.weekday, clientDate);
 
     if (!allowedDates.includes(date)) {
-      return Response.json(
+      return jsonResponse(
         { message: "Выберите дату из доступных вариантов записи." },
         { status: 400 }
       );
@@ -170,7 +179,7 @@ export async function POST(req: Request) {
     try {
       const payload = {
         conversation_id: conversationId,
-        visitor_id: visitorId,
+        visitor_id: visitorOwnership.visitorId,
         first_name: firstName,
         last_name: lastName,
         leader_key: leaderKey,
@@ -224,7 +233,7 @@ export async function POST(req: Request) {
       text: emailText,
     });
 
-    return Response.json({
+    return jsonResponse({
       ok: true,
       requestId,
       storageSaved,
@@ -236,7 +245,7 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error("APPOINTMENT REQUEST ERROR:", error);
 
-    return Response.json(
+    return jsonResponse(
       { message: "Не удалось отправить заявку на прием." },
       { status: 500 }
     );

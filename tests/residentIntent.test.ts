@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  hasResidentProblemSignal,
   resolveResidentIntent,
   type ResidentIntentKind,
   type ResidentLanguage,
@@ -14,6 +15,11 @@ const cases: Array<{
     question: "Не могу отправить показания по электроэнергии на сайте.",
     language: "ru",
     expected: "meter-submission-failure",
+  },
+  {
+    question: "Куда писать по технической ошибке?",
+    language: "ru",
+    expected: "technical-support-contact",
   },
   {
     question:
@@ -82,6 +88,22 @@ describe("resident intent routing", () => {
         "Не могу отправить показания счётчика, и прошлый платёж висит как долг",
         "ru"
       )?.kind
-    ).toBe("meter-submission-failure");
+    ).toBe("multi-intent-payment-meter");
+  });
+
+  it("does not split a single payment/debt situation into multi-intent", () => {
+    expect(
+      resolveResidentIntent(
+        "я оплатил вчера и сегодня вижу долг",
+        "ru"
+      )?.kind
+    ).toBe("uncredited-payment");
+  });
+
+  it("treats a vague resident problem as unsafe for direct KB answers", () => {
+    expect(hasResidentProblemSignal("у меня проблема со счетчиком")).toBe(true);
+    expect(resolveResidentIntent("у меня проблема со счетчиком", "ru")?.kind).toBe(
+      "meter-vague-problem"
+    );
   });
 });

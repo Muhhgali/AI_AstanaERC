@@ -66,6 +66,11 @@ export const RATE_LIMIT_POLICIES = {
     limit: 12,
     windowMs: 10 * 60_000,
   },
+  historyRead: {
+    namespace: "history-read",
+    limit: 60,
+    windowMs: 10 * 60_000,
+  },
   documentAnalysis: {
     namespace: "document-analysis",
     limit: 10,

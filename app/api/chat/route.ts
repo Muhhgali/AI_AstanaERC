@@ -2,7 +2,15 @@
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 import { createEmbedding } from "@/lib/embedding";
-import { searchKnowledge, searchKnowledgeLexical } from "@/lib/retrieval";
+import {
+  searchKnowledge,
+  searchKnowledgeLexical,
+  type KnowledgeSearchResult,
+} from "@/lib/retrieval";
+import {
+  retrieveKnowledgeV2,
+  toLegacyKnowledgeResult,
+} from "@/lib/rag/hybridRetrieval";
 import { getSupabaseProjectUrl } from "@/lib/supabaseEnv";
 import {
   buildMeterCorrectionCreatedMessage,
@@ -24,7 +32,26 @@ import {
   hasResidentProblemSignal,
   resolveResidentIntent,
 } from "@/lib/residentIntent";
+import {
+  clarificationAnswer,
+  decideClarification,
+} from "@/lib/clarification";
 import { enforceRateLimit, RATE_LIMIT_POLICIES } from "@/lib/rateLimit";
+import {
+  buildAssistantPromptV2,
+  type AssistantPromptLanguage,
+} from "@/lib/ai/prompts/assistantPromptV2";
+import type { RetrievalConfidenceLevel } from "@/lib/rag/types";
+import {
+  getOrCreateVisitorOwnership,
+  jsonWithVisitorOwnership,
+  normalizeUuid,
+} from "@/lib/security/visitorOwnership";
+import {
+  buildDocumentGroundedAnswer,
+  isDocumentFollowUpQuestion,
+} from "@/lib/documents/conversation";
+import { loadOwnedResidentDocument } from "@/lib/documents/repository";
 
 let openai: OpenAI | null = null;
 let adminSupabase: ReturnType<typeof createClient<any>> | null = null;
@@ -85,6 +112,7 @@ const LEXICAL_DIRECT_THRESHOLD = 0.72;
 const CHAT_CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CHAT_CACHE_ITEMS = 100;
 const MAX_GPT_HISTORY_MESSAGES = 8;
+const MAX_USER_MESSAGE_LENGTH = 2000;
 
 type CachedChatAnswer = {
   message: string;
@@ -199,18 +227,22 @@ async function ensureConversation(
 ) {
   if (conversationId) {
     if (visitorId) {
-      await getAdminSupabase()
+      const { data, error } = await getAdminSupabase()
         .from("chat_conversations")
-        .update({ visitor_id: visitorId })
+        .select("id,visitor_id")
         .eq("id", conversationId)
-        .then(({ error }) => {
-          if (error && !isMissingVisitorIdColumn(error)) {
-            throw error;
-          }
-        });
-    }
+        .single();
 
-    return conversationId;
+      if (error && !isMissingVisitorIdColumn(error)) {
+        throw error;
+      }
+
+      if (!error && data?.visitor_id === visitorId) {
+        return conversationId;
+      }
+    } else {
+      return conversationId;
+    }
   }
 
   const payload = {
@@ -438,10 +470,6 @@ function detectChatLanguage(text: string): ChatLanguage {
   return hasKazakhChars || hasKazakhWords ? "kk" : "ru";
 }
 
-function languageName(language: ChatLanguage) {
-  return language === "kk" ? "казахском языке" : "русском языке";
-}
-
 function buildUncertainAnswer(
   hasSupportDirection: boolean,
   language: ChatLanguage
@@ -450,6 +478,7 @@ function buildUncertainAnswer(
     return [
       "Бұл сұрақ бойынша базада әзірге нақты тексерілген ақпарат жоқ.",
       "Қате мәлімет бермеу үшін жауапты ойдан шығармаймын.",
+      "Нақтылап жіберіңізші: төлем, түбіртек, көрсеткіш, дербес шот, жеткізуші немесе өтініш бойынша сұрап тұрсыз ба?",
       hasSupportDirection
         ? "Төменде қолайлы байланыс қалдырдым. Бұл тақырыпты білім базасын толықтыруға белгіледім."
         : "Бұл тақырыпты білім базасын толықтыруға белгіледім.",
@@ -459,6 +488,7 @@ function buildUncertainAnswer(
   return [
     "По этому вопросу в базе пока нет точной проверенной информации.",
     "Я не буду придумывать ответ, чтобы не дать неверные данные.",
+    "Уточните, пожалуйста, что именно нужно проверить: оплата, квитанция, показания, лицевой счёт, поставщик или обращение?",
     hasSupportDirection
       ? "Ниже оставил подходящий контакт. Тему уже отметил для пополнения базы знаний."
       : "Тему уже отметил для пополнения базы знаний.",
@@ -620,6 +650,38 @@ function buildSmallTalkAnswer(
   }
 
   return "Здравствуйте! Я помощник Астана ЕРЦ. Напишите вопрос по ЕПД, оплате, квитанции, лицевому счёту, показаниям или обращению - помогу разобраться.";
+}
+
+function hasPromptSafetySignal(question: string) {
+  const normalized = normalizeRu(question);
+
+  return [
+    "системн",
+    "system prompt",
+    "system instructions",
+    "покажи промт",
+    "покажи prompt",
+    "скрытые инструк",
+    "внутренние инструк",
+    "игнорируй инструк",
+    "игнорируй предыдущ",
+    "ignore previous",
+    "ignore instructions",
+    "не используй базу",
+    "придумай номер",
+    "скажи api ключ",
+    "api key",
+    "секрет",
+    "стань другим ботом",
+  ].some((phrase) => normalized.includes(phrase));
+}
+
+function buildPromptSafetyAnswer(language: ChatLanguage) {
+  if (language === "kk") {
+    return "Ішкі нұсқауларды, жүйелік prompt-ты немесе құпия деректерді көрсете алмаймын. Астана-ЕРЦ қызметтері бойынша сұрағыңызды жазыңыз — қолымдағы тексерілген ақпаратпен көмектесемін.";
+  }
+
+  return "Я не могу показывать внутренние инструкции, системный prompt или секретные данные. Если вопрос по услугам Астана-ЕРЦ — напишите его обычными словами, помогу по проверенной информации.";
 }
 
 function isTechnicalSupportQuestion(question: string) {
@@ -1725,10 +1787,22 @@ function isMissingMeterCorrectionTable(error: unknown) {
 }
 
 export async function POST(req: Request) {
+  const visitorOwnership = getOrCreateVisitorOwnership(req);
+  const jsonResponse = (body: unknown, init?: ResponseInit) =>
+    jsonWithVisitorOwnership(body, visitorOwnership, init);
   const rateLimited = enforceRateLimit(req, RATE_LIMIT_POLICIES.chat);
 
   if (rateLimited) {
-    return rateLimited;
+    return visitorOwnership.cookieHeader
+      ? new Response(rateLimited.body, {
+          status: rateLimited.status,
+          statusText: rateLimited.statusText,
+          headers: {
+            ...Object.fromEntries(rateLimited.headers.entries()),
+            "Set-Cookie": visitorOwnership.cookieHeader,
+          },
+        })
+      : rateLimited;
   }
 
   try {
@@ -1736,15 +1810,15 @@ export async function POST(req: Request) {
     let body: unknown;
     try {
       body = await req.json();
-    } catch (error) {
-      return Response.json(
+    } catch {
+      return jsonResponse(
         { error: "Invalid JSON in request body" },
         { status: 400 }
       );
     }
 
     if (!body || typeof body !== "object") {
-      return Response.json(
+      return jsonResponse(
         { error: "Request body must be a JSON object" },
         { status: 400 }
       );
@@ -1758,13 +1832,11 @@ export async function POST(req: Request) {
       typeof bodyObj?.conversationId === "string"
         ? bodyObj.conversationId
         : undefined;
-    const visitorId =
-      typeof bodyObj?.visitorId === "string" && bodyObj.visitorId.length <= 120
-        ? bodyObj.visitorId
-        : undefined;
+    const activeDocumentId = normalizeUuid(bodyObj?.activeDocumentId);
+    const visitorId = visitorOwnership.visitorId;
 
     if (messages.length === 0) {
-      return Response.json(
+      return jsonResponse(
         { error: "No messages provided" },
         { status: 400 }
       );
@@ -1774,8 +1846,15 @@ export async function POST(req: Request) {
     const lastMessage = messages[messages.length - 1]?.content;
 
     if (!lastMessage || typeof lastMessage !== "string") {
-      return Response.json(
+      return jsonResponse(
         { error: "Last message is empty or invalid" },
+        { status: 400 }
+      );
+    }
+
+    if (lastMessage.length > MAX_USER_MESSAGE_LENGTH) {
+      return jsonResponse(
+        { error: "Message is too long" },
         { status: 400 }
       );
     }
@@ -1791,13 +1870,62 @@ export async function POST(req: Request) {
         : null;
     const userMessages = messages.filter((message) => message.role === "user");
 
+    if (
+      activeDocumentId &&
+      !submittedMeterCorrection &&
+      isDocumentFollowUpQuestion(lastMessage)
+    ) {
+      const document = await loadOwnedResidentDocument({
+        supabase: getAdminSupabase(),
+        documentId: activeDocumentId,
+        visitorId,
+      });
+
+      if (!document) {
+        return jsonResponse(
+          {
+            message:
+              responseLanguage === "kk"
+                ? "Бұл құжат табылмады немесе сізге тиесілі емес."
+                : "Документ не найден или не принадлежит этой сессии.",
+            source: "document-not-found",
+          },
+          { status: 404 }
+        );
+      }
+
+      const assistantMessage = buildDocumentGroundedAnswer({
+        question: lastMessage,
+        document,
+      });
+      const saved = await saveTurn({
+        conversationId,
+        visitorId,
+        userMessage: lastMessage,
+        assistantMessage,
+        source: "document-grounded",
+      });
+
+      return jsonResponse({
+        message: assistantMessage,
+        source: "document-grounded",
+        conversationId: saved.conversationId,
+        messageId: saved.messageId,
+        activeDocumentId,
+        suggestedQuestions:
+          responseLanguage === "kk"
+            ? ["Қай кезең көрсетілген?", "Қарыз қай жерде?", "Қандай сома төлеу керек?"]
+            : ["Какой период указан?", "Где здесь долг?", "Почему такая сумма?"],
+      });
+    }
+
     if (submittedMeterCorrection) {
       const { draft, missing } = validateMeterCorrectionForm(
         submittedMeterCorrection
       );
 
       if (missing.length > 0) {
-        return Response.json(
+        return jsonResponse(
           {
             error:
               responseLanguage === "kk"
@@ -1827,7 +1955,7 @@ export async function POST(req: Request) {
       } catch (error) {
         if (!isMissingMeterCorrectionTable(error)) {
           console.error("Meter correction error:", error);
-          return Response.json(
+          return jsonResponse(
             {
               error:
                 responseLanguage === "kk"
@@ -1853,7 +1981,7 @@ export async function POST(req: Request) {
         source,
       });
 
-      return Response.json({
+      return jsonResponse({
         message: assistantMessage,
         source,
         conversationId: saved.conversationId,
@@ -1872,6 +2000,29 @@ export async function POST(req: Request) {
       lastMessage,
       responseLanguage
     );
+
+    if (hasPromptSafetySignal(lastMessage)) {
+      const assistantMessage = buildPromptSafetyAnswer(responseLanguage);
+      const saved = await saveTurn({
+        conversationId,
+        visitorId,
+        userMessage: lastMessage,
+        assistantMessage,
+        source: "uncertain",
+      });
+
+      return jsonResponse({
+        message: assistantMessage,
+        source: "uncertain",
+        conversationId: saved.conversationId,
+        messageId: saved.messageId,
+        suggestedQuestions: buildSuggestedQuestions({
+          question: lastMessage,
+          source: "uncertain",
+          language: responseLanguage,
+        }),
+      });
+    }
 
     if (residentIntent) {
       const assistantMessage = residentIntent.answer;
@@ -1898,7 +2049,7 @@ export async function POST(req: Request) {
           ? TECH_SUPPORT_CARDS[responseLanguage]
           : undefined;
 
-      return Response.json({
+      return jsonResponse({
         message: assistantMessage,
         source: residentIntent.source,
         intent: residentIntent.kind,
@@ -1926,7 +2077,7 @@ export async function POST(req: Request) {
         source: "small-talk",
       });
 
-      return Response.json({
+      return jsonResponse({
         message: assistantMessage,
         source: "small-talk",
         conversationId: saved.conversationId,
@@ -1949,7 +2100,7 @@ export async function POST(req: Request) {
         source: "epd-guidance",
       });
 
-      return Response.json({
+      return jsonResponse({
         message: assistantMessage,
         source: "epd-guidance",
         conversationId: saved.conversationId,
@@ -1973,7 +2124,7 @@ export async function POST(req: Request) {
         source: "meter-reading-guidance",
       });
 
-      return Response.json({
+      return jsonResponse({
         message: assistantMessage,
         source: "meter-reading-guidance",
         conversationId: saved.conversationId,
@@ -1998,7 +2149,7 @@ export async function POST(req: Request) {
         source: "billing-guidance",
       });
 
-      return Response.json({
+      return jsonResponse({
         message: assistantMessage,
         source: "billing-guidance",
         conversationId: saved.conversationId,
@@ -2021,7 +2172,7 @@ export async function POST(req: Request) {
         source: "payment-guidance",
       });
 
-      return Response.json({
+      return jsonResponse({
         message: assistantMessage,
         source: "payment-guidance",
         conversationId: saved.conversationId,
@@ -2044,7 +2195,7 @@ export async function POST(req: Request) {
         source: "appeal-form",
       });
 
-      return Response.json({
+      return jsonResponse({
         message: assistantMessage,
         source: "appeal-form",
         conversationId: saved.conversationId,
@@ -2068,7 +2219,7 @@ export async function POST(req: Request) {
         source: "appointment-form",
       });
 
-      return Response.json({
+      return jsonResponse({
         message: assistantMessage,
         source: "appointment-form",
         conversationId: saved.conversationId,
@@ -2098,7 +2249,7 @@ export async function POST(req: Request) {
         reason: "user-request",
       });
 
-      return Response.json({
+      return jsonResponse({
         message: handoff.setupRequired
           ? `${assistantMessage}\n\nАдминистратору нужно выполнить обновленный scripts/chatHistory.sql, чтобы очередь операторов сохранялась в Supabase.`
           : assistantMessage,
@@ -2127,7 +2278,7 @@ export async function POST(req: Request) {
         source: "meter-correction-form",
       });
 
-      return Response.json({
+      return jsonResponse({
         message: assistantMessage,
         source: "meter-correction-form",
         conversationId: saved.conversationId,
@@ -2199,7 +2350,7 @@ export async function POST(req: Request) {
         source,
       });
 
-      return Response.json({
+      return jsonResponse({
         message: assistantMessage,
         source,
         conversationId: saved.conversationId,
@@ -2228,7 +2379,7 @@ export async function POST(req: Request) {
         source: "supplier-manager",
       });
 
-      return Response.json({
+      return jsonResponse({
         message: assistantMessage,
         source: "supplier-manager",
         conversationId: saved.conversationId,
@@ -2253,7 +2404,7 @@ export async function POST(req: Request) {
         source: "supplier-lookup-help",
       });
 
-      return Response.json({
+      return jsonResponse({
         message: assistantMessage,
         source: "supplier-lookup-help",
         conversationId: saved.conversationId,
@@ -2276,7 +2427,7 @@ export async function POST(req: Request) {
         source: "payment-guidance",
       });
 
-      return Response.json({
+      return jsonResponse({
         message: assistantMessage,
         source: "payment-guidance",
         conversationId: saved.conversationId,
@@ -2300,7 +2451,7 @@ export async function POST(req: Request) {
         source: cachedAnswer.source,
       });
 
-      return Response.json({
+      return jsonResponse({
         message: cachedAnswer.message,
         source: cachedAnswer.source,
         conversationId: saved.conversationId,
@@ -2315,51 +2466,201 @@ export async function POST(req: Request) {
       });
     }
 
-    const lexicalResults = await searchKnowledgeLexical(lastMessage);
-    const lexicalTop = lexicalResults[0];
+    let results: KnowledgeSearchResult[] | null = null;
+    const retrievalTraceEnabled =
+      process.env.DEBUG_RETRIEVAL === "true" &&
+      process.env.NODE_ENV !== "production";
+    let retrievalTraceForResponse: unknown;
+    let retrievalConfidenceForPrompt: RetrievalConfidenceLevel | "unknown" =
+      "unknown";
 
-    if (
-      responseLanguage === "ru" &&
-      lexicalTop &&
-      lexicalTop.score >= LEXICAL_DIRECT_THRESHOLD &&
-      lexicalTop.verified &&
-      !hasResidentProblemSignal(lastMessage)
-    ) {
-      const assistantMessage = lexicalTop.content ?? "";
-      setCachedChatAnswer(lastMessage, responseLanguage, {
-        message: assistantMessage,
-        source: "knowledge-direct",
-        category: lexicalTop.category,
+    if (process.env.RAG_PIPELINE_VERSION !== "legacy") {
+      const retrieval = await retrieveKnowledgeV2({
+        query: lastMessage,
+        previousMessages: getRecentModelMessages(messages),
       });
-      const saved = await saveTurn({
-        conversationId,
-        visitorId,
-        userMessage: lastMessage,
-        assistantMessage,
-        source: "knowledge-direct",
-      });
+      retrievalConfidenceForPrompt = retrieval.confidence.level;
 
-      return Response.json({
-        message: assistantMessage,
-        source: "knowledge-direct",
-        conversationId: saved.conversationId,
-        messageId: saved.messageId,
-        suggestedQuestions: buildSuggestedQuestions({
-          question: lastMessage,
+      retrievalTraceForResponse = retrievalTraceEnabled
+        ? retrieval.trace
+        : undefined;
+
+      if (retrieval.confidence.level === "low") {
+        const supportCard = getSupportCardIfNeeded(
+          lastMessage,
+          responseLanguage
+        );
+        const assistantMessage = buildUncertainAnswer(
+          Boolean(supportCard),
+          responseLanguage
+        );
+        const saved = await saveTurn({
+          conversationId,
+          visitorId,
+          userMessage: lastMessage,
+          assistantMessage,
+          source: "uncertain",
+        });
+        const topCandidate = retrieval.candidates[0];
+
+        await saveKnowledgeGap({
+          conversationId: saved.conversationId,
+          assistantMessageId: saved.messageId,
+          userQuestion: lastMessage,
+          assistantAnswer: assistantMessage,
+          reason: topCandidate ? "weak-match" : "no-match",
+          topSimilarity: topCandidate?.scoreBreakdown.semantic,
+        });
+
+        return jsonResponse({
+          message: assistantMessage,
+          source: "uncertain",
+          conversationId: saved.conversationId,
+          messageId: saved.messageId,
+          suggestedQuestions: buildSuggestedQuestions({
+            question: lastMessage,
+            source: "uncertain",
+            category: topCandidate?.category,
+            language: responseLanguage,
+          }),
+          supportCard,
+          retrievalTrace: retrievalTraceForResponse,
+        });
+      }
+
+      const topCandidate = retrieval.candidates[0];
+
+      if (
+        responseLanguage === "ru" &&
+        retrieval.confidence.level === "high" &&
+        topCandidate &&
+        topCandidate.verified &&
+        !retrieval.query.isOutOfDomain &&
+        !hasResidentProblemSignal(lastMessage)
+      ) {
+        const assistantMessage = topCandidate.content ?? "";
+        setCachedChatAnswer(lastMessage, responseLanguage, {
+          message: assistantMessage,
           source: "knowledge-direct",
-          category: lexicalTop.category,
-          language: responseLanguage,
-        }),
+          category: topCandidate.category,
+        });
+        const saved = await saveTurn({
+          conversationId,
+          visitorId,
+          userMessage: lastMessage,
+          assistantMessage,
+          source: "knowledge-direct",
+        });
+
+        return jsonResponse({
+          message: assistantMessage,
+          source: "knowledge-direct",
+          conversationId: saved.conversationId,
+          messageId: saved.messageId,
+          suggestedQuestions: buildSuggestedQuestions({
+            question: lastMessage,
+            source: "knowledge-direct",
+            category: topCandidate.category,
+            language: responseLanguage,
+          }),
+          retrievalTrace: retrievalTraceForResponse,
+        });
+      }
+
+      const clarificationDecision = decideClarification({
+        query: lastMessage,
+        language: responseLanguage,
+        confidence: retrieval.confidence,
+        intentHints: retrieval.query.intentHints,
+        isOutOfDomain: retrieval.query.isOutOfDomain,
+        requiresPrivateAccountLookup: retrieval.query.requiresPrivateAccountLookup,
+        candidates: retrieval.candidates,
       });
+
+      if (clarificationDecision.action === "clarify") {
+        const assistantMessage = clarificationAnswer(clarificationDecision);
+        const saved = await saveTurn({
+          conversationId,
+          visitorId,
+          userMessage: lastMessage,
+          assistantMessage,
+          source: "clarification",
+        });
+
+        await saveKnowledgeGap({
+          conversationId: saved.conversationId,
+          assistantMessageId: saved.messageId,
+          userQuestion: lastMessage,
+          assistantAnswer: assistantMessage,
+          reason: "weak-match",
+          topSimilarity: topCandidate?.scoreBreakdown.semantic,
+        });
+
+        return jsonResponse({
+          message: assistantMessage,
+          source: "clarification",
+          conversationId: saved.conversationId,
+          messageId: saved.messageId,
+          suggestedQuestions: buildSuggestedQuestions({
+            question: lastMessage,
+            source: "uncertain",
+            category: topCandidate?.category,
+            language: responseLanguage,
+          }),
+          retrievalTrace: retrievalTraceForResponse,
+        });
+      }
+
+      results = retrieval.selectedContext.map(toLegacyKnowledgeResult);
     }
 
-    // ===== CREATE QUERY EMBEDDING =====
-    const queryEmbedding =
-      await createEmbedding(lastMessage);
+    if (!results) {
+      const lexicalResults = await searchKnowledgeLexical(lastMessage);
+      const lexicalTop = lexicalResults[0];
 
-    // ===== SEARCH KNOWLEDGE =====
-    const results =
-      await searchKnowledge(queryEmbedding, lastMessage);
+      if (
+        responseLanguage === "ru" &&
+        lexicalTop &&
+        lexicalTop.score >= LEXICAL_DIRECT_THRESHOLD &&
+        lexicalTop.verified &&
+        !hasResidentProblemSignal(lastMessage)
+      ) {
+        const assistantMessage = lexicalTop.content ?? "";
+        setCachedChatAnswer(lastMessage, responseLanguage, {
+          message: assistantMessage,
+          source: "knowledge-direct",
+          category: lexicalTop.category,
+        });
+        const saved = await saveTurn({
+          conversationId,
+          visitorId,
+          userMessage: lastMessage,
+          assistantMessage,
+          source: "knowledge-direct",
+        });
+
+        return jsonResponse({
+          message: assistantMessage,
+          source: "knowledge-direct",
+          conversationId: saved.conversationId,
+          messageId: saved.messageId,
+          suggestedQuestions: buildSuggestedQuestions({
+            question: lastMessage,
+            source: "knowledge-direct",
+            category: lexicalTop.category,
+            language: responseLanguage,
+          }),
+        });
+      }
+
+      // ===== CREATE QUERY EMBEDDING =====
+      const queryEmbedding =
+        await createEmbedding(lastMessage);
+
+      // ===== SEARCH KNOWLEDGE =====
+      results =
+        await searchKnowledge(queryEmbedding, lastMessage);
+    }
 
     if (process.env.DEBUG_RETRIEVAL === "true") {
       console.log(
@@ -2395,7 +2696,7 @@ export async function POST(req: Request) {
         source: "knowledge-direct",
       });
 
-      return Response.json({
+      return jsonResponse({
         message: top.content,
         source: "knowledge-direct",
         conversationId: saved.conversationId,
@@ -2437,7 +2738,7 @@ export async function POST(req: Request) {
         topSimilarity: top?.similarity,
       });
 
-      return Response.json({
+      return jsonResponse({
         message: assistantMessage,
         source: "uncertain",
         conversationId: saved.conversationId,
@@ -2476,6 +2777,12 @@ ${r.content}
         ? "БАЗА ЗНАНИЙ ПУСТА - бәс информация жок"
         : "БАЗА ЗНАНИЙ ПУСТА - нет подходящей информации");
 
+    const assistantPrompt = buildAssistantPromptV2({
+      language: responseLanguage as AssistantPromptLanguage,
+      knowledgeContext: contextOrEmpty,
+      confidence: retrievalConfidenceForPrompt,
+    });
+
     // ===== GPT =====
     const completion =
       await getOpenAI().chat.completions.create({
@@ -2486,38 +2793,7 @@ ${r.content}
         messages: [
           {
             role: "system",
-
-            content: `
-Ты AI помощник компании Астана ЕРЦ. Ответы должны быть:
-✓ Точные, на основе только предоставленной базы
-✓ Краткие (2-5 предложений или 2-3 пункта)
-✓ На языке пользователя (${languageName(responseLanguage)})
-✓ С конкретными деталями (номера, сроки, адреса)
-✓ Структурированные (списки для нескольких пунктов)
-
-ПРАВИЛА:
-1. НЕ придумывай: номера, адреса, телефоны, сроки, названия организаций
-2. НЕ общайся лишне - отвечай по существу
-3. ЕСЛИ информации нет - напиши честно: "Точной информации в базе нет. Уточните вопрос" (на соответствующем языке)
-4. ЕСЛИ вопрос о технических проблемах - предложи контакт поддержки
-5. ЕСЛИ несколько вариантов ответа - приоритет: проверенная информация > свежая информация > похожая информация
-6. ЛОГИЧЕСКИЙ АНАЛИЗ: если вопрос связан с платежами или начислениями - применяй ВСЮ релевантную информацию из базы (например, если пользователь говорит о повторном начислении после оплаты, это может быть связано с поздней оплатой - применяй оба контекста)
-7. СНАЧАЛА ПОЙМИ ПРАКТИЧЕСКУЮ ЦЕЛЬ жителя, даже если сообщение написано с ошибками, разговорными словами или на смешанном русском и казахском языке
-8. ОПИСАНИЕ ПРОБЛЕМЫ важнее общего слова об услуге: "не отправляется", "не учли", "почему начислили", "нужно переоформить" — это не обычный вопрос "куда/как"
-9. НЕ повторяй действие или ссылку, если пользователь прямо написал, что уже попробовал и это не помогло
-10. Если для точного ответа не хватает одного существенного факта, сначала кратко отрази понимание ситуации, затем задай только один простой уточняющий вопрос
-11. Не делай вывод о причине начисления, праве на льготу, зачислении платежа или статусе договора без прямого подтверждения в базе
-12. Не повторяй в ответе полный лицевой счёт, адрес, сведения о здоровье и другие персональные данные пользователя без необходимости
-
-СТИЛЬ:
-- Для дат: четкие сроки (например: "с 10 по 25 число")
-- Для процессов: пошаговые инструкции
-- Для проблем: сначала решение, потом объяснение
-- Используй цифры, не слова ("25 число", не "двадцать пятого")
-
-БАЗА ЗНАНИЙ:
-${contextOrEmpty}
-            `.trim(),
+            content: assistantPrompt,
           },
 
           ...getRecentModelMessages(messages),
@@ -2563,20 +2839,21 @@ ${contextOrEmpty}
     }
 
     // ===== RESPONSE =====
-    return Response.json({
+    return jsonResponse({
       message: assistantMessage,
       source: "gpt",
       conversationId: saved.conversationId,
       messageId: saved.messageId,
-      suggestedQuestions: buildSuggestedQuestions({
-        question: lastMessage,
-        source: "gpt",
-        category: top?.category,
-        language: responseLanguage,
-      }),
+        suggestedQuestions: buildSuggestedQuestions({
+          question: lastMessage,
+          source: "gpt",
+          category: top?.category,
+          language: responseLanguage,
+        }),
       supportCard: gapReason
         ? getSupportCardIfNeeded(lastMessage, responseLanguage)
         : undefined,
+      retrievalTrace: retrievalTraceForResponse,
     });
 
   } catch (err) {
@@ -2592,7 +2869,7 @@ ${contextOrEmpty}
     // Graceful error response
     const statusCode = err instanceof Error && err.message.includes("API key") ? 401 : 500;
     
-    return Response.json(
+    return jsonResponse(
       {
         error: "Failed to process request",
         message: process.env.NODE_ENV === "development" 

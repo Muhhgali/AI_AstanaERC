@@ -1,6 +1,10 @@
 import { supabase } from "@/lib/supabaseClient";
+import {
+  isArchivedKnowledge,
+  isPublishedKnowledge,
+} from "@/lib/knowledgeLifecycle";
 
-type KnowledgeRow = {
+export type KnowledgeRow = {
   id?: string;
   title?: string | null;
   category?: string | null;
@@ -9,6 +13,10 @@ type KnowledgeRow = {
   priority?: number | null;
   verified?: boolean | null;
   source?: string | null;
+  language?: string | null;
+  status?: string | null;
+  metadata?: Record<string, unknown> | null;
+  content_hash?: string | null;
 };
 
 export type KnowledgeSearchResult = KnowledgeRow & {
@@ -28,7 +36,7 @@ let knowledgeCache:
     }
   | null = null;
 
-function cosineSimilarity(a: number[], b: number[]) {
+export function cosineSimilarity(a: number[], b: number[]) {
   if (!a?.length || !b?.length) {
     return 0;
   }
@@ -71,7 +79,7 @@ function parseEmbedding(
   }
 }
 
-function tokenize(text: string) {
+export function tokenizeForRetrieval(text: string) {
   return text
     .toLowerCase()
     .split(/[^\p{L}\p{N}]+/u)
@@ -82,14 +90,14 @@ function textOverlapScore(
   queryText: string,
   item: KnowledgeRow
 ) {
-  const queryTokens = new Set(tokenize(queryText));
+  const queryTokens = new Set(tokenizeForRetrieval(queryText));
 
   if (queryTokens.size === 0) {
     return 0;
   }
 
   const itemTokens = new Set(
-    tokenize(
+    tokenizeForRetrieval(
       `${item.title ?? ""} ${item.category ?? ""} ${
         item.content ?? ""
       }`
@@ -107,7 +115,7 @@ function textOverlapScore(
   return matches / queryTokens.size;
 }
 
-function priorityBoost(item: KnowledgeRow) {
+export function priorityBoost(item: KnowledgeRow) {
   const priority =
     typeof item.priority === "number" ? item.priority : 0;
   const normalizedPriority = Math.min(
@@ -118,7 +126,7 @@ function priorityBoost(item: KnowledgeRow) {
   return normalizedPriority / 1000 + (item.verified ? 0.08 : 0);
 }
 
-async function loadKnowledgeRows() {
+export async function loadKnowledgeRows() {
   if (
     knowledgeCache &&
     Date.now() - knowledgeCache.loadedAt < KNOWLEDGE_CACHE_TTL_MS
@@ -126,26 +134,58 @@ async function loadKnowledgeRows() {
     return knowledgeCache.rows;
   }
 
-  const { data, error } = await supabase
+  const initialResult = await supabase
     .from("knowledge")
-    .select("id,title,category,content,embedding,priority,verified,source");
+    .select(
+      "id,title,category,content,embedding,priority,verified,source,language,status,metadata,content_hash"
+    );
+  let data = initialResult.data as KnowledgeRow[] | null;
+  let error = initialResult.error;
+
+  if (
+    error &&
+    (error.code === "42703" ||
+      error.message?.includes("status") ||
+      error.message?.includes("language") ||
+      error.message?.includes("content_hash") ||
+      error.message?.includes("metadata"))
+  ) {
+    const fallback = await supabase
+      .from("knowledge")
+      .select("id,title,category,content,embedding,priority,verified,source");
+
+    data = fallback.data as KnowledgeRow[] | null;
+    error = fallback.error;
+  }
 
   if (error) {
     console.error("SUPABASE ERROR:", error);
     return [];
   }
 
-  const rows = ((data ?? []) as KnowledgeRow[])
-    .map((item) => ({
-      ...item,
-      embedding: parseEmbedding(item.embedding),
-    }))
-    .filter(
-      (item): item is KnowledgeRow & { embedding: number[] } =>
-        Array.isArray(item.embedding) &&
-        item.embedding.length > 0 &&
-        Boolean(item.content)
-    );
+  const rows = (data ?? []).reduce<
+    (KnowledgeRow & { embedding: number[] })[]
+  >((rows, item) => {
+    if (isArchivedKnowledge(item)) {
+      return rows;
+    }
+
+    const embedding = parseEmbedding(item.embedding);
+
+    if (
+      Array.isArray(embedding) &&
+      embedding.length > 0 &&
+      Boolean(item.content)
+    ) {
+      rows.push({
+        ...item,
+        verified: isPublishedKnowledge(item),
+        embedding,
+      });
+    }
+
+    return rows;
+  }, []);
 
   knowledgeCache = {
     loadedAt: Date.now(),

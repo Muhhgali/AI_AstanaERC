@@ -1,5 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from "@supabase/supabase-js";
+import { enforceRateLimit, RATE_LIMIT_POLICIES } from "@/lib/rateLimit";
+import {
+  getOrCreateVisitorOwnership,
+  jsonWithVisitorOwnership,
+} from "@/lib/security/visitorOwnership";
 import { getSupabaseProjectUrl } from "@/lib/supabaseEnv";
 
 let adminSupabase: ReturnType<typeof createClient<any>> | null = null;
@@ -35,16 +40,6 @@ function normalizeIds(value: unknown) {
       )
     )
   ).slice(0, 30);
-}
-
-function normalizeVisitorId(value: unknown) {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-
-  const trimmed = value.trim();
-
-  return /^[A-Za-z0-9_-]{12,120}$/.test(trimmed) ? trimmed : undefined;
 }
 
 function isMissingVisitorIdColumn(error: unknown) {
@@ -96,38 +91,49 @@ function mergeRows<T extends { id: string }>(...groups: T[][]) {
 }
 
 export async function POST(req: Request) {
+  const visitorOwnership = getOrCreateVisitorOwnership(req);
+  const jsonResponse = (body: unknown, init?: ResponseInit) =>
+    jsonWithVisitorOwnership(body, visitorOwnership, init);
+  const rateLimited = enforceRateLimit(req, RATE_LIMIT_POLICIES.historyRead);
+
+  if (rateLimited) {
+    if (visitorOwnership.cookieHeader) {
+      rateLimited.headers.append("Set-Cookie", visitorOwnership.cookieHeader);
+    }
+
+    return rateLimited;
+  }
+
   try {
     const body = await req.json().catch(() => ({}));
     const suppliedIds = normalizeIds(body?.conversationIds);
-    const visitorId = normalizeVisitorId(body?.visitorId);
-
-    if (suppliedIds.length === 0 && !visitorId) {
-      return Response.json({ requests: [] });
-    }
+    const visitorId = visitorOwnership.visitorId;
 
     const supabase = getAdminSupabase();
     let visitorIds: string[] = [];
 
-    if (visitorId) {
-      const { data, error } = await supabase
-        .from("chat_conversations")
-        .select("id")
-        .eq("visitor_id", visitorId)
-        .limit(30);
+    const { data, error } = await supabase
+      .from("chat_conversations")
+      .select("id")
+      .eq("visitor_id", visitorId)
+      .limit(30);
 
-      if (error) {
-        if (!isMissingVisitorIdColumn(error)) {
-          return Response.json({ message: error.message }, { status: 500 });
-        }
-      } else {
-        visitorIds = (data ?? []).map((item) => item.id as string);
+    if (error) {
+      if (!isMissingVisitorIdColumn(error)) {
+        return jsonResponse(
+          { message: "Failed to load request statuses" },
+          { status: 500 }
+        );
       }
+    } else {
+      visitorIds = (data ?? []).map((item) => item.id as string);
     }
 
-    const ids = Array.from(new Set([...suppliedIds, ...visitorIds])).slice(
-      0,
-      30
-    );
+    const ownedIdSet = new Set(visitorIds);
+    const ids =
+      suppliedIds.length > 0
+        ? suppliedIds.filter((id) => ownedIdSet.has(id)).slice(0, 30)
+        : visitorIds.slice(0, 30);
 
     const [
       meterByConversation,
@@ -211,7 +217,7 @@ export async function POST(req: Request) {
       appointmentsByVisitor
     );
 
-    return Response.json({
+    return jsonResponse({
       requests: [
         ...meter.map((item) => ({
           id: item.id,
@@ -257,6 +263,6 @@ export async function POST(req: Request) {
     const message =
       error instanceof Error ? error.message : "Failed to load request statuses";
 
-    return Response.json({ message }, { status: 500 });
+    return jsonResponse({ message }, { status: 500 });
   }
 }

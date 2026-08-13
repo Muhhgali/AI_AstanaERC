@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { BrandMark } from "@/components/BrandMark";
 import { supabase } from "@/lib/supabaseClient";
-import type { ChatLanguage, RequestCategory, RequestStatusFilter, HistoryFilter } from "@/lib/types";
+import type { RequestCategory, RequestStatusFilter, HistoryFilter } from "@/lib/types";
 
 // Admin-specific types (not shared with other components)
 type KnowledgeItem = {
@@ -27,19 +27,46 @@ type KnowledgeItem = {
   title: string;
   category: string;
   content: string;
+  language?: "ru" | "kk";
+  status?: KnowledgeStatus;
   priority: number;
   verified: boolean;
   source: string | null;
+  reviewed_at?: string | null;
+  archived_at?: string | null;
+  content_hash?: string | null;
+  metadata?: Record<string, unknown> | null;
 };
+
+type KnowledgeStatus = "draft" | "review" | "verified" | "archived";
 
 type KnowledgeForm = {
   id?: string;
   title: string;
   category: string;
   content: string;
+  language: "ru" | "kk";
+  status: KnowledgeStatus;
   priority: number;
   verified: boolean;
   source: string;
+};
+
+type AiTestCase = {
+  id: string;
+  sanitizedQuery: string;
+  language?: string;
+  category?: string;
+  expectedBehavior?: string;
+  tags?: string[];
+  labelQuality?: string;
+};
+
+type LearningSession = {
+  gap: KnowledgeGap | null;
+  question: string;
+  suggestedCategory?: string;
+  setupRequired?: boolean;
 };
 
 type HistoryMessage = {
@@ -71,6 +98,55 @@ type KnowledgeGap = {
   top_similarity: number | null;
   created_at: string;
   resolved_at: string | null;
+};
+
+type WorkspaceRole = "admin" | "manager" | "knowledge_editor" | "reviewer";
+
+type ManagerWorkspaceItem = KnowledgeGap & {
+  assignment_status:
+    | "unassigned"
+    | "assigned"
+    | "in_progress"
+    | "review"
+    | "completed";
+  assigned_to: string | null;
+  assigned_at?: string | null;
+  started_at?: string | null;
+  submitted_at?: string | null;
+  completed_at?: string | null;
+  review_comment?: string | null;
+  prepared_answer?: string | null;
+  prepared_source?: string | null;
+  draft_knowledge_id?: string | null;
+  manager_version: number;
+  frequency: number;
+  priority: number;
+  category?: string | null;
+  sanitized_user_question?: string | null;
+  last_seen_at?: string | null;
+  updated_at?: string | null;
+};
+
+type ManagerWorkspaceData = {
+  me: { id: string; roles: WorkspaceRole[] };
+  items: ManagerWorkspaceItem[];
+  unassignedCount: number;
+  activeLimit: number;
+  setupRequired?: boolean;
+  message?: string;
+};
+
+type AdminManagerWorkspaceData = {
+  items: ManagerWorkspaceItem[];
+  stats: {
+    unassigned: number;
+    assigned: number;
+    inProgress: number;
+    review: number;
+    managers: { id: string; active: number }[];
+  };
+  setupRequired?: boolean;
+  message?: string;
 };
 
 type MeterCorrectionRequest = {
@@ -254,10 +330,24 @@ const EMPTY_FORM: KnowledgeForm = {
   title: "",
   category: "support",
   content: "",
+  language: "ru",
+  status: "draft",
   priority: 100,
-  verified: true,
+  verified: false,
   source: "admin",
 };
+
+const KNOWLEDGE_STATUSES: {
+  id: KnowledgeStatus | "all";
+  label: string;
+  hint: string;
+}[] = [
+  { id: "all", label: "Все", hint: "включая архив" },
+  { id: "draft", label: "Черновик", hint: "готовится владельцем" },
+  { id: "review", label: "На проверке", hint: "ждет человека" },
+  { id: "verified", label: "Опубликовано", hint: "может отвечать бот" },
+  { id: "archived", label: "Архив", hint: "не попадает в RAG" },
+];
 
 const TEMPLATES = [
   {
@@ -314,6 +404,19 @@ function getCategoryLabel(category: string) {
 
 function getCategoryId(category: string) {
   return getCategory(category).id;
+}
+
+function getKnowledgeStatus(item: Pick<KnowledgeItem, "status" | "verified">) {
+  if (
+    item.status === "draft" ||
+    item.status === "review" ||
+    item.status === "verified" ||
+    item.status === "archived"
+  ) {
+    return item.status;
+  }
+
+  return item.verified ? "verified" : "draft";
 }
 
 function formatDate(value: string) {
@@ -419,6 +522,22 @@ function requestMatchesStatus(
     : status === "new" || status === "in_progress";
 }
 
+function getWorkspaceRolesFromMetadata(appMetadata: Record<string, unknown>) {
+  const role = appMetadata.role;
+  const roles = appMetadata.roles;
+  const allRoles = [
+    typeof role === "string" ? role : null,
+    ...(Array.isArray(roles) ? roles : []),
+  ];
+
+  return allRoles.filter((item): item is WorkspaceRole =>
+    item === "admin" ||
+    item === "manager" ||
+    item === "knowledge_editor" ||
+    item === "reviewer"
+  );
+}
+
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<
     | "dashboard"
@@ -427,6 +546,9 @@ export default function AdminPage() {
     | "history"
     | "requests"
     | "suppliers"
+    | "ai-tests"
+    | "learning"
+    | "manager-workspace"
   >("dashboard");
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [items, setItems] = useState<KnowledgeItem[]>([]);
@@ -450,6 +572,39 @@ export default function AdminPage() {
   const [query, setQuery] = useState("");
   const [historyQuery, setHistoryQuery] = useState("");
   const [supplierQuery, setSupplierQuery] = useState("");
+  const [knowledgeStatusFilter, setKnowledgeStatusFilter] = useState<
+    KnowledgeStatus | "all"
+  >("all");
+  const [knowledgeLanguageFilter, setKnowledgeLanguageFilter] = useState<
+    "all" | "ru" | "kk"
+  >("all");
+  const [aiTests, setAiTests] = useState<AiTestCase[]>([]);
+  const [aiTestQuery, setAiTestQuery] = useState("");
+  const [aiTestCategory, setAiTestCategory] = useState("all");
+  const [aiTestsLoading, setAiTestsLoading] = useState(false);
+  const [aiTestMessage, setAiTestMessage] = useState("");
+  const [learningSession, setLearningSession] =
+    useState<LearningSession | null>(null);
+  const [learningAnswer, setLearningAnswer] = useState("");
+  const [learningCategory, setLearningCategory] = useState("support");
+  const [learningPublishNow, setLearningPublishNow] = useState(false);
+  const [learningLoading, setLearningLoading] = useState(false);
+  const [learningSaving, setLearningSaving] = useState(false);
+  const [learningMessage, setLearningMessage] = useState("");
+  const [currentUserRoles, setCurrentUserRoles] = useState<WorkspaceRole[]>([]);
+  const [managerWorkspace, setManagerWorkspace] =
+    useState<ManagerWorkspaceData | null>(null);
+  const [managerWorkspaceLoading, setManagerWorkspaceLoading] = useState(false);
+  const [managerWorkspaceSaving, setManagerWorkspaceSaving] = useState(false);
+  const [managerWorkspaceMessage, setManagerWorkspaceMessage] = useState("");
+  const [adminManagerWorkspace, setAdminManagerWorkspace] =
+    useState<AdminManagerWorkspaceData | null>(null);
+  const [adminAssignInputs, setAdminAssignInputs] = useState<
+    Record<string, string>
+  >({});
+  const [managerDrafts, setManagerDrafts] = useState<
+    Record<string, { answer: string; source: string }>
+  >({});
   const [supplierCodeQuery, setSupplierCodeQuery] = useState("");
   const [activeSupplierManager, setActiveSupplierManager] = useState("all");
   const [supplierForm, setSupplierForm] = useState<SupplierItem | null>(null);
@@ -482,6 +637,7 @@ export default function AdminPage() {
   const [error, setError] = useState("");
 
   const router = useRouter();
+  const isAdminUser = currentUserRoles.includes("admin");
 
   const getAccessToken = useCallback(async () => {
     try {
@@ -647,6 +803,237 @@ export default function AdminPage() {
     }
   }, [apiRequest]);
 
+  const loadAiTests = useCallback(async () => {
+    setAiTestsLoading(true);
+    setError("");
+
+    try {
+      const params = new URLSearchParams();
+
+      if (aiTestQuery.trim()) {
+        params.set("query", aiTestQuery.trim());
+      }
+
+      if (aiTestCategory !== "all") {
+        params.set("category", aiTestCategory);
+      }
+
+      const data = await apiRequest<{
+        items: AiTestCase[];
+        total: number;
+        openAiCalls: number;
+        costPolicy: string;
+      }>(`/api/admin/ai-tests?${params.toString()}`);
+
+      setAiTests(data.items);
+      setAiTestMessage(`${data.costPolicy} OpenAI calls: ${data.openAiCalls}`);
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Не удалось загрузить AI Test Center";
+      setError(message);
+    } finally {
+      setAiTestsLoading(false);
+    }
+  }, [aiTestCategory, aiTestQuery, apiRequest]);
+
+  const loadLearningQuestion = useCallback(async () => {
+    setLearningLoading(true);
+    setError("");
+    setLearningMessage("");
+
+    try {
+      const data = await apiRequest<LearningSession>("/api/admin/learning");
+
+      setLearningSession(data);
+      setLearningAnswer("");
+      setLearningCategory(data.suggestedCategory ?? "support");
+      setLearningPublishNow(false);
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Не удалось загрузить вопрос для обучения";
+      setError(message);
+    } finally {
+      setLearningLoading(false);
+    }
+  }, [apiRequest]);
+
+  const submitLearningAnswer = async () => {
+    if (!learningSession?.gap?.id) {
+      setError("Нет активного вопроса для обучения.");
+      return;
+    }
+
+    if (!learningAnswer.trim()) {
+      setError("Напиши объяснение для бота.");
+      return;
+    }
+
+    setLearningSaving(true);
+    setError("");
+    setLearningMessage("");
+
+    try {
+      const data = await apiRequest<{
+        item: KnowledgeItem;
+        status: KnowledgeStatus;
+        message: string;
+      }>("/api/admin/learning", {
+        method: "POST",
+        body: JSON.stringify({
+          gapId: learningSession.gap.id,
+          explanation: learningAnswer,
+          category: learningCategory,
+          publishNow: learningPublishNow,
+        }),
+      });
+
+      setItems((prev) => [data.item, ...prev]);
+      setKnowledgeGaps((prev) =>
+        prev.filter((gap) => gap.id !== learningSession.gap?.id)
+      );
+      await loadKnowledge();
+      await loadHistory();
+      await loadLearningQuestion();
+      setLearningMessage(data.message);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Не удалось сохранить объяснение";
+      setError(message);
+    } finally {
+      setLearningSaving(false);
+    }
+  };
+
+  const loadManagerWorkspace = useCallback(async () => {
+    setManagerWorkspaceLoading(true);
+    setError("");
+    setManagerWorkspaceMessage("");
+
+    try {
+      const data = await apiRequest<ManagerWorkspaceData>(
+        "/api/manager/workspace"
+      );
+      setManagerWorkspace(data);
+
+      if (data.message) {
+        setManagerWorkspaceMessage(data.message);
+      }
+
+      if (data.setupRequired) {
+        setError(
+          data.message ??
+            "Manager Workspace ещё не настроен. Нужно применить SQL-миграцию Stage 4.5."
+        );
+      }
+
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Не удалось загрузить рабочее место менеджера";
+      setError(message);
+    } finally {
+      setManagerWorkspaceLoading(false);
+    }
+  }, [apiRequest]);
+
+  const loadAdminManagerWorkspace = useCallback(async () => {
+    const adminData = await apiRequest<AdminManagerWorkspaceData>(
+      "/api/admin/manager-workspace"
+    );
+    setAdminManagerWorkspace(adminData);
+  }, [apiRequest]);
+
+  const mutateAdminManagerWorkspace = async (body: Record<string, unknown>) => {
+    setManagerWorkspaceSaving(true);
+    setError("");
+    setManagerWorkspaceMessage("");
+
+    try {
+      await apiRequest("/api/admin/manager-workspace", {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
+      await loadAdminManagerWorkspace();
+      setManagerWorkspaceMessage("Admin-действие выполнено.");
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Не удалось обновить admin-очередь";
+      setError(message);
+    } finally {
+      setManagerWorkspaceSaving(false);
+    }
+  };
+
+  const mutateManagerWorkspace = async (body: Record<string, unknown>) => {
+    setManagerWorkspaceSaving(true);
+    setError("");
+    setManagerWorkspaceMessage("");
+
+    try {
+      const data = await apiRequest<
+        Partial<ManagerWorkspaceData> & {
+          item?: ManagerWorkspaceItem;
+          claimed?: ManagerWorkspaceItem | null;
+          message?: string;
+        }
+      >("/api/manager/workspace", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+
+      if (data.items) {
+        setManagerWorkspace((prev) => ({
+          me: data.me ?? prev?.me ?? { id: "", roles: currentUserRoles },
+          activeLimit: data.activeLimit ?? prev?.activeLimit ?? 5,
+          unassignedCount: data.unassignedCount ?? prev?.unassignedCount ?? 0,
+          items: data.items ?? prev?.items ?? [],
+          setupRequired: data.setupRequired ?? prev?.setupRequired,
+          message: data.message,
+        }));
+      } else if (data.item) {
+        setManagerWorkspace((prev) =>
+          prev
+            ? {
+                ...prev,
+                items: prev.items.map((item) =>
+                  item.id === data.item?.id ? data.item : item
+                ),
+              }
+            : prev
+        );
+      }
+
+      setManagerWorkspaceMessage(data.message ?? "Готово.");
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Не удалось выполнить действие";
+      setError(message);
+    } finally {
+      setManagerWorkspaceSaving(false);
+    }
+  };
+
+  const updateManagerDraft = (
+    gapId: string,
+    patch: Partial<{ answer: string; source: string }>
+  ) => {
+    setManagerDrafts((prev) => ({
+      ...prev,
+      [gapId]: {
+        answer: prev[gapId]?.answer ?? "",
+        source: prev[gapId]?.source ?? "",
+        ...patch,
+      },
+    }));
+  };
+
   useEffect(() => {
     const checkUser = async () => {
       const {
@@ -665,11 +1052,24 @@ export default function AdminPage() {
         return;
       }
 
+      const roles = getWorkspaceRolesFromMetadata(
+        user.app_metadata as Record<string, unknown>
+      );
+      setCurrentUserRoles(roles);
+
+      if (!roles.includes("admin")) {
+        setActiveTab("manager-workspace");
+        await loadManagerWorkspace();
+        return;
+      }
+
       await loadDashboard();
       await loadKnowledge();
       await loadHistory();
       await loadRequests();
       await loadSuppliers();
+      await loadAiTests();
+      await loadLearningQuestion();
     };
 
     void checkUser();
@@ -677,7 +1077,10 @@ export default function AdminPage() {
     loadDashboard,
     loadHistory,
     loadKnowledge,
+    loadLearningQuestion,
+    loadManagerWorkspace,
     loadRequests,
+    loadAiTests,
     loadSuppliers,
     router,
   ]);
@@ -696,12 +1099,15 @@ export default function AdminPage() {
   }, [items]);
 
   const verifiedCount = useMemo(
-    () => items.filter((item) => item.verified).length,
+    () => items.filter((item) => getKnowledgeStatus(item) === "verified").length,
     [items]
   );
 
   const reviewItems = useMemo(
-    () => items.filter((item) => !item.verified),
+    () =>
+      items.filter((item) =>
+        ["draft", "review"].includes(getKnowledgeStatus(item))
+      ),
     [items]
   );
 
@@ -719,6 +1125,8 @@ export default function AdminPage() {
             title: currentReviewItem.title,
             category: getCategoryId(currentReviewItem.category),
             content: currentReviewItem.content,
+            language: currentReviewItem.language ?? "ru",
+            status: "verified" as const,
             priority: currentReviewItem.priority ?? 0,
             verified: true,
             source: currentReviewItem.source ?? "review",
@@ -910,12 +1318,20 @@ export default function AdminPage() {
       const category = getCategory(item.category);
       const matchesCategory =
         activeCategory === "all" || category.id === activeCategory;
+      const status = getKnowledgeStatus(item);
+      const matchesStatus =
+        knowledgeStatusFilter === "all" || status === knowledgeStatusFilter;
+      const matchesLanguage =
+        knowledgeLanguageFilter === "all" ||
+        (item.language ?? "ru") === knowledgeLanguageFilter;
       const matchesQuery =
         !normalizedQuery ||
         [
           item.title,
           item.category,
           category.label,
+          status,
+          item.language ?? "ru",
           item.content,
           item.source ?? "",
         ]
@@ -923,9 +1339,15 @@ export default function AdminPage() {
           .toLowerCase()
           .includes(normalizedQuery);
 
-      return matchesCategory && matchesQuery;
+      return matchesCategory && matchesStatus && matchesLanguage && matchesQuery;
     });
-  }, [activeCategory, items, query]);
+  }, [
+    activeCategory,
+    items,
+    knowledgeLanguageFilter,
+    knowledgeStatusFilter,
+    query,
+  ]);
 
   const historyBuckets = useMemo(() => {
     const getBucket = (conversation: HistoryConversation): HistoryFilter => {
@@ -1082,6 +1504,8 @@ export default function AdminPage() {
       title: item.title,
       category: getCategoryId(item.category),
       content: item.content,
+      language: item.language ?? "ru",
+      status: getKnowledgeStatus(item),
       priority: item.priority ?? 0,
       verified: Boolean(item.verified),
       source: item.source ?? "admin",
@@ -1150,7 +1574,13 @@ export default function AdminPage() {
           method: "DELETE",
         }
       );
-      setItems((prev) => prev.filter((x) => x.id !== item.id));
+      setItems((prev) =>
+        prev.map((x) =>
+          x.id === item.id
+            ? { ...x, status: "archived", verified: false }
+            : x
+        )
+      );
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Не удалось удалить";
@@ -1178,6 +1608,7 @@ export default function AdminPage() {
     try {
       const payload = {
         ...activeReviewForm,
+        status: "verified" as const,
         verified: true,
       };
 
@@ -1194,6 +1625,8 @@ export default function AdminPage() {
                 title: payload.title,
                 category: payload.category,
                 content: payload.content,
+                language: payload.language,
+                status: "verified",
                 priority: payload.priority,
                 verified: true,
                 source: payload.source,
@@ -1229,6 +1662,8 @@ export default function AdminPage() {
       ...EMPTY_FORM,
       title: userMessage,
       content: "",
+      status: "draft",
+      verified: false,
       source: "history",
     });
     setActiveGapId(null);
@@ -1259,7 +1694,8 @@ export default function AdminPage() {
         title: gap.user_question || gap.topic,
         content: "",
         source: "knowledge-gap",
-        verified: true,
+        status: "draft",
+        verified: false,
       });
       setError(
         err instanceof Error
@@ -1650,6 +2086,24 @@ export default function AdminPage() {
           <div className="flex flex-col gap-1">
           <button
             onClick={() => {
+              setActiveTab("manager-workspace");
+              void loadManagerWorkspace();
+              if (isAdminUser) {
+                void loadAdminManagerWorkspace();
+              }
+            }}
+            className={`h-10 rounded-md px-3 text-left text-sm font-semibold transition ${
+              activeTab === "manager-workspace"
+                ? "bg-blue-600 text-white shadow-sm"
+                : "text-neutral-600 hover:bg-neutral-50"
+            }`}
+          >
+            Мои вопросы ({managerWorkspace?.items.length ?? 0})
+          </button>
+          {isAdminUser && (
+            <>
+          <button
+            onClick={() => {
               setActiveTab("dashboard");
               void loadDashboard();
             }}
@@ -1724,6 +2178,34 @@ export default function AdminPage() {
           >
             Проверка ({reviewItems.length})
           </button>
+          <button
+            onClick={() => {
+              setActiveTab("ai-tests");
+              void loadAiTests();
+            }}
+            className={`h-10 rounded-md px-3 text-left text-sm font-semibold transition ${
+              activeTab === "ai-tests"
+                ? "bg-blue-600 text-white shadow-sm"
+                : "text-neutral-600 hover:bg-neutral-50"
+            }`}
+          >
+            AI Test Center ({aiTests.length})
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab("learning");
+              void loadLearningQuestion();
+            }}
+            className={`h-10 rounded-md px-3 text-left text-sm font-semibold transition ${
+              activeTab === "learning"
+                ? "bg-blue-600 text-white shadow-sm"
+                : "text-neutral-600 hover:bg-neutral-50"
+            }`}
+          >
+            Обучение ({knowledgeGaps.length})
+          </button>
+            </>
+          )}
           </div>
 
           <div className="mt-4 grid gap-2 border-t border-neutral-200 pt-4">
@@ -1751,12 +2233,375 @@ export default function AdminPage() {
         <section className="min-w-0">
 
         {error && (
-          <div className="mb-5 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
+          <div className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <div className="font-semibold">
+              {error.includes("роль admin") || error.includes("ADMIN_ROLE_REQUIRED")
+                ? "Нужна роль администратора"
+                : "Ошибка загрузки админки"}
+            </div>
+            <div className="mt-1">{error}</div>
+            {(error.includes("роль admin") || error.includes("ADMIN_ROLE_REQUIRED")) && (
+              <ol className="mt-3 list-decimal space-y-1 pl-5 text-red-700">
+                <li>Открой Supabase → Authentication → Users.</li>
+                <li>Выбери пользователя, под которым ты вошёл в админку.</li>
+                <li>
+                  В <span className="font-mono">Raw app metadata</span> добавь{" "}
+                  <span className="font-mono">{'{"role":"admin"}'}</span>.
+                </li>
+                <li>Выйди из админки и зайди снова, чтобы обновился JWT.</li>
+              </ol>
+            )}
           </div>
         )}
 
-        {activeTab === "dashboard" ? (
+        {activeTab === "manager-workspace" ? (
+          <>
+            <section className="mb-5 grid gap-3 md:grid-cols-3">
+              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+                <div className="text-sm text-neutral-500">Мои активные вопросы</div>
+                <div className="mt-2 text-3xl font-semibold">
+                  {managerWorkspace?.items.filter((item) =>
+                    ["assigned", "in_progress", "review"].includes(
+                      item.assignment_status
+                    )
+                  ).length ?? 0}
+                  <span className="text-base text-neutral-400">
+                    /{managerWorkspace?.activeLimit ?? 5}
+                  </span>
+                </div>
+              </div>
+              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+                <div className="text-sm text-neutral-500">Свободно в очереди</div>
+                <div className="mt-2 text-3xl font-semibold">
+                  {managerWorkspace?.unassignedCount ?? 0}
+                </div>
+              </div>
+              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+                <div className="text-sm text-neutral-500">Моя роль</div>
+                <div className="mt-2 text-lg font-semibold">
+                  {currentUserRoles.join(", ") || "role not set"}
+                </div>
+              </div>
+            </section>
+
+            <section className="overflow-hidden rounded-lg border border-neutral-200 bg-white">
+              <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="font-semibold">Рабочее место менеджера</h2>
+                  <p className="mt-1 text-sm text-neutral-500">
+                    Здесь бот отдаёт непонятные вопросы людям. Менеджер пишет
+                    проверенный ответ с источником, а публикация идёт через review.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => {
+                      void loadManagerWorkspace();
+                      if (isAdminUser) {
+                        void loadAdminManagerWorkspace();
+                      }
+                    }}
+                    disabled={managerWorkspaceLoading}
+                    className="h-10 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50 disabled:opacity-60"
+                  >
+                    {managerWorkspaceLoading ? "Обновляю..." : "Обновить"}
+                  </button>
+                  <button
+                    onClick={() =>
+                      void mutateManagerWorkspace({ action: "claim_next" })
+                    }
+                    disabled={managerWorkspaceSaving}
+                    className="h-10 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                  >
+                    {managerWorkspaceSaving ? "Беру..." : "Взять следующий"}
+                  </button>
+                </div>
+              </div>
+
+              {managerWorkspaceMessage && (
+                <div className="border-b border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                  {managerWorkspaceMessage}
+                </div>
+              )}
+
+              {managerWorkspace?.setupRequired ? (
+                <div className="p-5 text-sm text-neutral-600">
+                  Нужно применить миграцию{" "}
+                  <span className="font-mono">
+                    supabase/migrations/20260813003000_manager_workspace.sql
+                  </span>
+                  , после этого очередь заработает.
+                </div>
+              ) : !managerWorkspace || managerWorkspace.items.length === 0 ? (
+                <div className="p-8 text-center text-sm text-neutral-500">
+                  У тебя пока нет назначенных вопросов. Нажми “Взять следующий”.
+                </div>
+              ) : (
+                <div className="divide-y divide-neutral-200">
+                  {managerWorkspace.items.map((item) => {
+                    const draft = managerDrafts[item.id] ?? {
+                      answer: item.prepared_answer ?? "",
+                      source: item.prepared_source ?? "",
+                    };
+                    const canEdit = ["assigned", "in_progress"].includes(
+                      item.assignment_status
+                    );
+
+                    return (
+                      <article key={item.id} className="p-4">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="rounded-md bg-neutral-100 px-2 py-1 text-xs font-semibold text-neutral-700">
+                                {item.assignment_status}
+                              </span>
+                              <span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">
+                                priority {item.priority}
+                              </span>
+                              <span className="rounded-md bg-neutral-50 px-2 py-1 text-xs text-neutral-500">
+                                version {item.manager_version}
+                              </span>
+                            </div>
+                            <h3 className="mt-3 font-semibold">
+                              {item.sanitized_user_question ||
+                                item.user_question ||
+                                item.topic}
+                            </h3>
+                            <div className="mt-2 text-sm text-neutral-500">
+                              Категория: {item.category ?? "support"} · Частота:{" "}
+                              {item.frequency} · Создано:{" "}
+                              {item.created_at ? formatDate(item.created_at) : "—"}
+                            </div>
+                            {item.assistant_answer && (
+                              <div className="mt-3 rounded-md bg-neutral-50 p-3 text-sm text-neutral-600">
+                                <div className="font-medium text-neutral-800">
+                                  Что бот ответил раньше
+                                </div>
+                                <div className="mt-1 whitespace-pre-wrap">
+                                  {item.assistant_answer}
+                                </div>
+                              </div>
+                            )}
+                            {item.review_comment && (
+                              <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                                Review-комментарий: {item.review_comment}
+                              </div>
+                            )}
+                          </div>
+                          {item.assignment_status === "assigned" && (
+                            <button
+                              onClick={() =>
+                                void mutateManagerWorkspace({
+                                  action: "start",
+                                  gapId: item.id,
+                                  expectedVersion: item.manager_version,
+                                })
+                              }
+                              disabled={managerWorkspaceSaving}
+                              className="h-9 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50 disabled:opacity-60"
+                            >
+                              Начать
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_280px]">
+                          <label className="block">
+                            <span className="mb-1 block text-sm font-medium text-neutral-700">
+                              Ответ для базы знаний
+                            </span>
+                            <textarea
+                              value={draft.answer}
+                              onChange={(e) =>
+                                updateManagerDraft(item.id, {
+                                  answer: e.target.value,
+                                })
+                              }
+                              disabled={!canEdit}
+                              className="min-h-36 w-full resize-y rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm leading-6 outline-none focus:border-blue-600 disabled:bg-neutral-50"
+                              placeholder="Напиши короткий проверенный ответ, как бот должен отвечать жителям."
+                            />
+                          </label>
+                          <div>
+                            <label className="block">
+                              <span className="mb-1 block text-sm font-medium text-neutral-700">
+                                Источник
+                              </span>
+                              <textarea
+                                value={draft.source}
+                                onChange={(e) =>
+                                  updateManagerDraft(item.id, {
+                                    source: e.target.value,
+                                  })
+                                }
+                                disabled={!canEdit}
+                                className="min-h-24 w-full resize-y rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm leading-6 outline-none focus:border-blue-600 disabled:bg-neutral-50"
+                                placeholder="Например: файл контактов, регламент, сообщение руководителя, дата."
+                              />
+                            </label>
+                            <button
+                              onClick={() =>
+                                void mutateManagerWorkspace({
+                                  action: "submit_review",
+                                  gapId: item.id,
+                                  expectedVersion: item.manager_version,
+                                  answer: draft.answer,
+                                  source: draft.source,
+                                })
+                              }
+                              disabled={
+                                managerWorkspaceSaving ||
+                                !canEdit ||
+                                !draft.answer.trim() ||
+                                !draft.source.trim()
+                              }
+                              className="mt-3 h-10 w-full rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                            >
+                              Отправить на проверку
+                            </button>
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+            {isAdminUser && (
+              <section className="mt-5 overflow-hidden rounded-lg border border-neutral-200 bg-white">
+                <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <h2 className="font-semibold">Admin: распределение очереди</h2>
+                    <p className="mt-1 text-sm text-neutral-500">
+                      Ручное назначение/возврат вопросов. Для назначения вставь
+                      Supabase user UUID менеджера.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => void loadAdminManagerWorkspace()}
+                    className="h-10 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50"
+                  >
+                    Обновить очередь
+                  </button>
+                </div>
+
+                {adminManagerWorkspace ? (
+                  <div className="divide-y divide-neutral-200">
+                    {adminManagerWorkspace.items.length === 0 ? (
+                      <div className="p-6 text-sm text-neutral-500">
+                        В очереди нет открытых вопросов.
+                      </div>
+                    ) : (
+                      adminManagerWorkspace.items.map((item) => (
+                        <article key={item.id} className="p-4">
+                          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2 text-xs">
+                                <span className="rounded-md bg-neutral-100 px-2 py-1 font-semibold text-neutral-700">
+                                  {item.assignment_status}
+                                </span>
+                                <span className="rounded-md bg-blue-50 px-2 py-1 font-semibold text-blue-700">
+                                  priority {item.priority}
+                                </span>
+                                {item.assigned_to && (
+                                  <span className="rounded-md bg-neutral-50 px-2 py-1 text-neutral-500">
+                                    assigned: {item.assigned_to}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="mt-2 font-medium">
+                                {item.sanitized_user_question ||
+                                  item.user_question ||
+                                  item.topic}
+                              </div>
+                              {item.prepared_answer && (
+                                <div className="mt-2 rounded-md bg-neutral-50 p-3 text-sm text-neutral-600">
+                                  {item.prepared_answer}
+                                </div>
+                              )}
+                            </div>
+                            <div className="w-full shrink-0 lg:w-80">
+                              <input
+                                value={adminAssignInputs[item.id] ?? ""}
+                                onChange={(e) =>
+                                  setAdminAssignInputs((prev) => ({
+                                    ...prev,
+                                    [item.id]: e.target.value,
+                                  }))
+                                }
+                                className="h-10 w-full rounded-md border border-neutral-300 px-3 text-sm outline-none focus:border-blue-600"
+                                placeholder="manager user UUID"
+                              />
+                              <div className="mt-2 grid grid-cols-2 gap-2">
+                                <button
+                                  onClick={() =>
+                                    void mutateAdminManagerWorkspace({
+                                      action: "assign",
+                                      gapId: item.id,
+                                      assignedTo: adminAssignInputs[item.id],
+                                      expectedVersion: item.manager_version,
+                                    })
+                                  }
+                                  disabled={
+                                    managerWorkspaceSaving ||
+                                    !adminAssignInputs[item.id]?.trim()
+                                  }
+                                  className="h-9 rounded-md bg-blue-600 px-3 text-xs font-semibold text-white hover:bg-blue-700 disabled:bg-neutral-400"
+                                >
+                                  Назначить
+                                </button>
+                                <button
+                                  onClick={() =>
+                                    void mutateAdminManagerWorkspace({
+                                      action: "return_to_queue",
+                                      gapId: item.id,
+                                      expectedVersion: item.manager_version,
+                                    })
+                                  }
+                                  className="h-9 rounded-md border border-neutral-300 px-3 text-xs font-medium hover:bg-neutral-50"
+                                >
+                                  В очередь
+                                </button>
+                                <button
+                                  onClick={() =>
+                                    void mutateAdminManagerWorkspace({
+                                      action: "return_to_work",
+                                      gapId: item.id,
+                                      expectedVersion: item.manager_version,
+                                    })
+                                  }
+                                  className="h-9 rounded-md border border-amber-300 px-3 text-xs font-medium text-amber-700 hover:bg-amber-50"
+                                >
+                                  Доработать
+                                </button>
+                                <button
+                                  onClick={() =>
+                                    void mutateAdminManagerWorkspace({
+                                      action: "complete",
+                                      gapId: item.id,
+                                      expectedVersion: item.manager_version,
+                                    })
+                                  }
+                                  className="h-9 rounded-md border border-emerald-300 px-3 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
+                                >
+                                  Закрыть
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </article>
+                      ))
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-6 text-sm text-neutral-500">
+                    Нажми “Обновить очередь”, чтобы загрузить admin-список.
+                  </div>
+                )}
+              </section>
+            )}
+          </>
+        ) : activeTab === "dashboard" ? (
           <>
             <section className="mb-5 overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-sm">
               <div className="grid gap-0 lg:grid-cols-[1.2fr_0.8fr]">
@@ -2201,6 +3046,45 @@ export default function AdminPage() {
               </div>
             </section>
 
+            <section className="mb-5 rounded-lg border border-neutral-200 bg-white p-4">
+              <div className="grid gap-3 md:grid-cols-[1fr_180px_140px]">
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  className="h-10 rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                  placeholder="Поиск по базе знаний"
+                />
+                <select
+                  value={knowledgeStatusFilter}
+                  onChange={(e) =>
+                    setKnowledgeStatusFilter(
+                      e.target.value as KnowledgeStatus | "all"
+                    )
+                  }
+                  className="h-10 rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                >
+                  {KNOWLEDGE_STATUSES.map((status) => (
+                    <option key={status.id} value={status.id}>
+                      {status.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={knowledgeLanguageFilter}
+                  onChange={(e) =>
+                    setKnowledgeLanguageFilter(
+                      e.target.value as "all" | "ru" | "kk"
+                    )
+                  }
+                  className="h-10 rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                >
+                  <option value="all">Все языки</option>
+                  <option value="ru">RU</option>
+                  <option value="kk">KK</option>
+                </select>
+              </div>
+            </section>
+
             <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
               <section className="h-fit rounded-lg border border-neutral-200 bg-white p-5">
                 <div className="mb-4 flex items-center justify-between gap-3">
@@ -2298,6 +3182,54 @@ export default function AdminPage() {
                   />
                 </label>
 
+                <div className="mb-4 grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="mb-1 block text-sm font-medium text-neutral-700">
+                      Язык
+                    </span>
+                    <select
+                      value={form.language}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          language: e.target.value === "kk" ? "kk" : "ru",
+                        }))
+                      }
+                      className="h-11 w-full rounded-md border border-neutral-300 bg-white px-3 outline-none focus:border-blue-600"
+                    >
+                      <option value="ru">Русский</option>
+                      <option value="kk">Қазақша</option>
+                    </select>
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1 block text-sm font-medium text-neutral-700">
+                      Статус
+                    </span>
+                    <select
+                      value={form.status}
+                      onChange={(e) => {
+                        const status = e.target.value as KnowledgeStatus;
+
+                        setForm((prev) => ({
+                          ...prev,
+                          status,
+                          verified: status === "verified",
+                        }));
+                      }}
+                      className="h-11 w-full rounded-md border border-neutral-300 bg-white px-3 outline-none focus:border-blue-600"
+                    >
+                      {KNOWLEDGE_STATUSES.filter(
+                        (item) => item.id !== "all"
+                      ).map((status) => (
+                        <option key={status.id} value={status.id}>
+                          {status.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
                 <div className="mb-4 grid grid-cols-[1fr_120px] gap-3">
                   <label className="block">
                     <span className="mb-1 block text-sm font-medium text-neutral-700">
@@ -2344,6 +3276,7 @@ export default function AdminPage() {
                       setForm((prev) => ({
                         ...prev,
                         verified: e.target.checked,
+                        status: e.target.checked ? "verified" : "review",
                       }))
                     }
                     className="h-4 w-4"
@@ -3806,6 +4739,246 @@ export default function AdminPage() {
                   ))}
                 </div>
               )}
+            </section>
+          </>
+        ) : activeTab === "learning" ? (
+          <>
+            <section className="mb-5 grid gap-3 md:grid-cols-3">
+              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+                <div className="text-sm text-neutral-500">Открытых тем</div>
+                <div className="mt-2 text-3xl font-semibold">
+                  {knowledgeGaps.length}
+                </div>
+              </div>
+              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+                <div className="text-sm text-neutral-500">Режим</div>
+                <div className="mt-2 text-2xl font-semibold">бот учится</div>
+              </div>
+              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+                <div className="text-sm text-neutral-500">По умолчанию</div>
+                <div className="mt-2 text-2xl font-semibold">review</div>
+              </div>
+            </section>
+
+            <section className="overflow-hidden rounded-lg border border-neutral-200 bg-white">
+              <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="font-semibold">Обучение бота</h2>
+                  <p className="mt-1 text-sm text-neutral-500">
+                    Бот задаёт вопрос по теме, которую не знает. Ты объясняешь — он создаёт запись базы знаний.
+                  </p>
+                </div>
+                <button
+                  onClick={() => void loadLearningQuestion()}
+                  disabled={learningLoading}
+                  className="h-10 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50 disabled:opacity-60"
+                >
+                  {learningLoading ? "Ищу вопрос..." : "Следующий вопрос"}
+                </button>
+              </div>
+
+              <div className="grid gap-5 p-5 lg:grid-cols-[1fr_360px]">
+                <div>
+                  <div className="mb-4 rounded-2xl rounded-tl-sm border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-blue-950">
+                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-blue-600">
+                      Бот спрашивает
+                    </div>
+                    {learningSession?.question ??
+                      "Нажми “Следующий вопрос”, чтобы бот выбрал непонятную тему."}
+                  </div>
+
+                  {learningSession?.gap && (
+                    <div className="mb-4 rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-sm text-neutral-600">
+                      <div className="mb-1 font-medium text-neutral-800">
+                        Исходный вопрос жителя
+                      </div>
+                      <div>{learningSession.gap.user_question}</div>
+                      {learningSession.gap.assistant_answer && (
+                        <div className="mt-3">
+                          <div className="font-medium text-neutral-800">
+                            Что бот ответил раньше
+                          </div>
+                          <div className="mt-1 whitespace-pre-wrap">
+                            {learningSession.gap.assistant_answer}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-medium text-neutral-700">
+                      Твоё объяснение боту
+                    </span>
+                    <textarea
+                      value={learningAnswer}
+                      onChange={(e) => setLearningAnswer(e.target.value)}
+                      className="min-h-56 w-full resize-y rounded-md border border-neutral-300 bg-white px-3 py-2 leading-6 outline-none focus:border-blue-600"
+                      placeholder="Объясни как человеку: что отвечать, когда отправлять в WhatsApp/109, какие данные просить, что нельзя обещать."
+                    />
+                  </label>
+                </div>
+
+                <aside className="h-fit rounded-lg border border-neutral-200 bg-neutral-50 p-4">
+                  <h3 className="font-semibold">Как сохранить знание</h3>
+                  <p className="mt-1 text-sm text-neutral-500">
+                    Сначала лучше сохранить на проверку. Если ответ точный — можно опубликовать сразу.
+                  </p>
+
+                  <label className="mt-4 block">
+                    <span className="mb-1 block text-sm font-medium text-neutral-700">
+                      Категория
+                    </span>
+                    <select
+                      value={learningCategory}
+                      onChange={(e) => setLearningCategory(e.target.value)}
+                      className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                    >
+                      {CATEGORIES.map((category) => (
+                        <option key={category.id} value={category.id}>
+                          {category.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="mt-4 flex items-start gap-2 text-sm text-neutral-700">
+                    <input
+                      type="checkbox"
+                      checked={learningPublishNow}
+                      onChange={(e) => setLearningPublishNow(e.target.checked)}
+                      className="mt-1 h-4 w-4"
+                    />
+                    <span>
+                      Сразу опубликовать — бот начнёт использовать это после сохранения.
+                    </span>
+                  </label>
+
+                  <button
+                    onClick={() => void submitLearningAnswer()}
+                    disabled={
+                      learningSaving ||
+                      !learningSession?.gap ||
+                      !learningAnswer.trim()
+                    }
+                    className="mt-4 h-11 w-full rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                  >
+                    {learningSaving ? "Сохраняю..." : "Сохранить объяснение"}
+                  </button>
+
+                  {learningMessage && (
+                    <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+                      {learningMessage}
+                    </div>
+                  )}
+                </aside>
+              </div>
+            </section>
+          </>
+        ) : activeTab === "ai-tests" ? (
+          <>
+            <section className="mb-5 grid gap-3 md:grid-cols-3">
+              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+                <div className="text-sm text-neutral-500">Real-world cases</div>
+                <div className="mt-2 text-3xl font-semibold">
+                  {aiTests.length}
+                </div>
+              </div>
+              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+                <div className="text-sm text-neutral-500">OpenAI при открытии</div>
+                <div className="mt-2 text-3xl font-semibold">0</div>
+              </div>
+              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+                <div className="text-sm text-neutral-500">Bulk limit</div>
+                <div className="mt-2 text-3xl font-semibold">10</div>
+              </div>
+            </section>
+
+            <section className="rounded-lg border border-neutral-200 bg-white">
+              <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="font-semibold">AI Test Center</h2>
+                  <p className="mt-1 text-sm text-neutral-500">
+                    Просмотр eval-кейсов безопасен: OpenAI не вызывается автоматически.
+                  </p>
+                </div>
+                <button
+                  onClick={() => void loadAiTests()}
+                  disabled={aiTestsLoading}
+                  className="h-10 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50 disabled:opacity-60"
+                >
+                  {aiTestsLoading ? "Загружаю..." : "Обновить"}
+                </button>
+              </div>
+
+              <div className="grid gap-3 border-b border-neutral-200 bg-neutral-50 p-4 md:grid-cols-[1fr_180px]">
+                <input
+                  value={aiTestQuery}
+                  onChange={(e) => setAiTestQuery(e.target.value)}
+                  className="h-10 rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                  placeholder="Поиск по вопросу, тегу, категории"
+                />
+                <select
+                  value={aiTestCategory}
+                  onChange={(e) => setAiTestCategory(e.target.value)}
+                  className="h-10 rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                >
+                  <option value="all">Все категории</option>
+                  {CATEGORIES.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {aiTestMessage && (
+                <div className="border-b border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+                  {aiTestMessage}
+                </div>
+              )}
+
+              <div className="divide-y divide-neutral-200">
+                {aiTests.map((testCase) => (
+                  <article key={testCase.id} className="p-4">
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <span className="rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600">
+                        {testCase.id}
+                      </span>
+                      <span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
+                        {testCase.category ?? "uncategorized"}
+                      </span>
+                      <span className="rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600">
+                        {(testCase.language ?? "ru").toUpperCase()}
+                      </span>
+                      <span className="text-xs text-neutral-500">
+                        {testCase.expectedBehavior ?? "expected"}
+                      </span>
+                    </div>
+                    <h3 className="text-sm font-semibold text-neutral-900">
+                      {testCase.sanitizedQuery}
+                    </h3>
+                    {(testCase.tags ?? []).length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {(testCase.tags ?? []).map((tag) => (
+                          <span
+                            key={tag}
+                            className="rounded bg-neutral-100 px-2 py-0.5 text-xs text-neutral-500"
+                          >
+                            #{tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </article>
+                ))}
+
+                {aiTests.length === 0 && (
+                  <div className="p-4 text-sm text-neutral-500">
+                    Кейсы не найдены. Нажми “Обновить” или сбрось фильтры.
+                  </div>
+                )}
+              </div>
             </section>
           </>
         ) : activeTab === "history" ? (

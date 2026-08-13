@@ -1,5 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from "@supabase/supabase-js";
+import { enforceRateLimit, RATE_LIMIT_POLICIES } from "@/lib/rateLimit";
+import {
+  getOrCreateVisitorOwnership,
+  jsonWithVisitorOwnership,
+} from "@/lib/security/visitorOwnership";
 import { getSupabaseProjectUrl } from "@/lib/supabaseEnv";
 
 let adminSupabase: ReturnType<typeof createClient<any>> | null = null;
@@ -37,16 +42,6 @@ function normalizeIds(value: unknown) {
   ).slice(0, 30);
 }
 
-function normalizeVisitorId(value: unknown) {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-
-  const trimmed = value.trim();
-
-  return /^[A-Za-z0-9_-]{12,120}$/.test(trimmed) ? trimmed : undefined;
-}
-
 function isMissingVisitorIdColumn(error: unknown) {
   if (!error || typeof error !== "object") {
     return false;
@@ -61,32 +56,37 @@ function isMissingVisitorIdColumn(error: unknown) {
 }
 
 export async function POST(req: Request) {
+  const visitorOwnership = getOrCreateVisitorOwnership(req);
+  const jsonResponse = (body: unknown, init?: ResponseInit) =>
+    jsonWithVisitorOwnership(body, visitorOwnership, init);
+  const rateLimited = enforceRateLimit(req, RATE_LIMIT_POLICIES.historyRead);
+
+  if (rateLimited) {
+    if (visitorOwnership.cookieHeader) {
+      rateLimited.headers.append("Set-Cookie", visitorOwnership.cookieHeader);
+    }
+
+    return rateLimited;
+  }
+
   try {
     const body = await req.json().catch(() => ({}));
     const ids = normalizeIds(body?.conversationIds);
-    const visitorId = normalizeVisitorId(body?.visitorId);
-
-    if (ids.length === 0 && !visitorId) {
-      return Response.json({ conversations: [] });
-    }
+    const visitorId = visitorOwnership.visitorId;
 
     const supabase = getAdminSupabase();
-    const byId =
-      ids.length > 0
-        ? await supabase
-            .from("chat_conversations")
-            .select("id,title,created_at,updated_at")
-            .in("id", ids)
-            .order("updated_at", { ascending: false })
-        : { data: [], error: null };
-    const byVisitor = visitorId
-      ? await supabase
-          .from("chat_conversations")
-          .select("id,title,created_at,updated_at")
-          .eq("visitor_id", visitorId)
-          .order("updated_at", { ascending: false })
-          .limit(30)
-      : { data: [], error: null };
+    let conversationsQuery = supabase
+      .from("chat_conversations")
+      .select("id,title,created_at,updated_at")
+      .eq("visitor_id", visitorId)
+      .order("updated_at", { ascending: false })
+      .limit(30);
+
+    if (ids.length > 0) {
+      conversationsQuery = conversationsQuery.in("id", ids);
+    }
+
+    const byVisitor = await conversationsQuery;
     const visitorData =
       byVisitor.error && isMissingVisitorIdColumn(byVisitor.error)
         ? []
@@ -96,21 +96,14 @@ export async function POST(req: Request) {
         ? null
         : byVisitor.error;
 
-    if (byId.error || visitorError) {
-      return Response.json(
-        { message: (byId.error ?? visitorError)?.message },
+    if (visitorError) {
+      return jsonResponse(
+        { message: "Failed to load chat history" },
         { status: 500 }
       );
     }
 
-    const conversations = Array.from(
-      new Map(
-        [...visitorData, ...(byId.data ?? [])].map((item) => [
-          item.id,
-          item,
-        ])
-      ).values()
-    )
+    const conversations = visitorData
       .sort(
         (a, b) =>
           new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
@@ -119,7 +112,7 @@ export async function POST(req: Request) {
     const conversationIds = conversations.map((item) => item.id);
 
     if (conversationIds.length === 0) {
-      return Response.json({ conversations: [] });
+      return jsonResponse({ conversations: [] });
     }
 
     const { data: messages, error: messagesError } = await getAdminSupabase()
@@ -129,7 +122,10 @@ export async function POST(req: Request) {
       .order("created_at", { ascending: true });
 
     if (messagesError) {
-      return Response.json({ message: messagesError.message }, { status: 500 });
+      return jsonResponse(
+        { message: "Failed to load chat history" },
+        { status: 500 }
+      );
     }
 
     const grouped = (messages ?? []).reduce<Record<string, any[]>>(
@@ -141,7 +137,7 @@ export async function POST(req: Request) {
       {}
     );
 
-    return Response.json({
+    return jsonResponse({
       conversations: conversations.map((conversation) => ({
         ...conversation,
         messages: grouped[conversation.id] ?? [],
@@ -151,6 +147,6 @@ export async function POST(req: Request) {
     const message =
       error instanceof Error ? error.message : "Failed to load chat history";
 
-    return Response.json({ message }, { status: 500 });
+    return jsonResponse({ message }, { status: 500 });
   }
 }

@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from "@supabase/supabase-js";
-import { getSupabaseAnonKey, getSupabaseProjectUrl } from "@/lib/supabaseEnv";
+import { getSupabaseProjectUrl } from "@/lib/supabaseEnv";
+import { requireAdmin } from "@/lib/auth/requireAdmin";
 
-let authClient: ReturnType<typeof createClient<any>> | null = null;
 let adminClient: ReturnType<typeof createClient<any>> | null = null;
 
 type KnowledgeGap = {
@@ -12,19 +12,6 @@ type KnowledgeGap = {
   assistant_answer: string | null;
   reason: string;
 };
-
-function getAuthClient() {
-  const supabaseUrl = getSupabaseProjectUrl();
-  const supabaseAnonKey = getSupabaseAnonKey();
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error("Missing SUPABASE_URL or SUPABASE_ANON_KEY");
-  }
-
-  authClient ??= createClient<any>(supabaseUrl, supabaseAnonKey);
-
-  return authClient;
-}
 
 function getAdminClient() {
   const supabaseUrl = getSupabaseProjectUrl();
@@ -39,26 +26,6 @@ function getAdminClient() {
   );
 
   return adminClient;
-}
-
-async function requireUser(req: Request) {
-  const authHeader = req.headers.get("authorization");
-  const token = authHeader?.replace("Bearer ", "");
-
-  if (!token) {
-    return null;
-  }
-
-  const {
-    data: { user },
-    error,
-  } = await getAuthClient().auth.getUser(token);
-
-  if (error || !user) {
-    return null;
-  }
-
-  return user;
 }
 
 function inferCategory(question: string) {
@@ -107,13 +74,10 @@ function buildDraftContent(gap: KnowledgeGap) {
 }
 
 export async function POST(req: Request) {
-  const user = await requireUser(req);
+  const authorization = await requireAdmin(req);
 
-  if (!user) {
-    return Response.json(
-      { message: "Сессия администратора не прошла проверку." },
-      { status: 401 }
-    );
+  if (!authorization.ok) {
+    return authorization.response;
   }
 
   const body = (await req.json().catch(() => ({}))) as { gapId?: string };
@@ -139,6 +103,8 @@ export async function POST(req: Request) {
       title: gap.user_question || gap.topic,
       category: inferCategory(`${gap.topic} ${gap.user_question}`),
       content: buildDraftContent(gap),
+      language: "ru",
+      status: "draft",
       priority: 90,
       verified: false,
       source: "knowledge-gap-draft",

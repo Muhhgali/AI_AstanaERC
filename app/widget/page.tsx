@@ -59,15 +59,16 @@ const STORAGE_VISITOR_ID = "astana_erc_visitor_id";
 const STORAGE_LANGUAGE = "astana_erc_language";
 
 const QUICK_PROMPTS = [
-  "Как оплатить ЕПД?",
-  "Куда передать показания?",
-  "Что делать при ошибочной оплате?",
+  "Почему остался долг после оплаты?",
+  "Как передать показания?",
+  "Не пришла квитанция",
+  "Купил квартиру, что дальше?",
 ];
 
 function sourceLabel(source?: string) {
-  if (source === "knowledge-direct") return "База знаний";
-  if (source === "gpt") return "AI + база";
-  if (source === "uncertain") return "Нужна проверка";
+  if (source === "knowledge-direct") return "Проверено";
+  if (source === "gpt") return "По базе";
+  if (source === "uncertain") return "Нужно уточнить";
   if (source === "supplier-manager") return "Поставщик";
   if (source === "billing-guidance") return "Начисления";
   if (source === "appeal-form") return "Обращение";
@@ -78,6 +79,7 @@ function sourceLabel(source?: string) {
   if (source === "appointment-saved") return "Принято";
   if (source === "operator-handoff") return "Оператор";
   if (source === "receipt-analysis") return "Квитанция";
+  if (source === "resident-intent-meter-vague-problem") return "Уточнение";
   if (source === "error") return "Ошибка";
   return source ?? "Ответ";
 }
@@ -535,6 +537,7 @@ export default function WidgetPage() {
   const [panelError, setPanelError] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
   const [receiptUploading, setReceiptUploading] = useState(false);
+  const [activeDocumentId, setActiveDocumentId] = useState<string | undefined>();
   const [voiceSupported, setVoiceSupported] = useState(false);
   const [speakingMessageIndex, setSpeakingMessageIndex] = useState<
     number | null
@@ -717,6 +720,7 @@ export default function WidgetPage() {
         body: JSON.stringify({
           conversationId,
           visitorId,
+          activeDocumentId,
           language,
           messages: updated.map(({ role, content }) => ({
             role,
@@ -741,7 +745,8 @@ export default function WidgetPage() {
           id: data.messageId,
           role: "assistant",
           content: data.message ?? "Не удалось получить ответ.",
-          source: data.source,
+        source: data.source,
+        activeDocumentId: data.activeDocumentId,
           supplierCard: data.supplierCard,
           meterCorrectionForm: data.meterCorrectionForm,
           suggestedQuestions: data.suggestedQuestions,
@@ -1180,10 +1185,17 @@ export default function WidgetPage() {
         message?: string;
         source?: string;
         suggestedQuestions?: string[];
+        documentId?: string;
+        activeDocumentId?: string;
+        status?: string;
       };
 
       if (!res.ok) {
         throw new Error(data.message ?? "Не удалось проверить файл.");
+      }
+
+      if (data.activeDocumentId || data.documentId) {
+        setActiveDocumentId(data.activeDocumentId ?? data.documentId);
       }
 
       setMessages((prev) => [
@@ -1193,6 +1205,8 @@ export default function WidgetPage() {
           content: data.message ?? "",
           source: data.source ?? "receipt-analysis",
           suggestedQuestions: data.suggestedQuestions,
+          activeDocumentId: data.activeDocumentId ?? data.documentId,
+          documentStatus: data.status,
         },
       ]);
     } catch (error) {
@@ -1543,25 +1557,25 @@ export default function WidgetPage() {
       <section
         ref={chatScrollRef}
         onScroll={updateChatScrollState}
-        className="app-scrollbar min-h-0 flex-1 overflow-y-auto bg-[#f3f7fc] px-3 py-4"
+        className="app-scrollbar min-h-0 flex-1 overflow-y-auto bg-[#f7f9fc] px-3 py-4"
       >
         <div ref={topRef} />
         {messages.length === 0 && (
-          <div className="soft-enter rounded-lg border border-neutral-200 bg-white p-4 shadow-sm">
+          <div className="soft-enter rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Bot size={17} className="text-blue-600" />
-              С чего начнем?
+              Чем помочь?
             </div>
             <p className="mt-2 text-sm leading-5 text-neutral-500">
-              Напишите вопрос своими словами. Если точного ответа нет, покажу
-              куда обратиться.
+              Помогу разобраться с квитанцией, оплатой, показаниями и
+              обращениями Астана-ЕРЦ.
             </p>
             <div className="mt-4 flex flex-wrap gap-1.5">
               {QUICK_PROMPTS.map((prompt) => (
                 <button
                   key={prompt}
                   onClick={() => handleGuidedAction(prompt)}
-                  className="rounded-full border border-neutral-200 bg-white px-2.5 py-1.5 text-left text-[11px] font-medium leading-4 text-neutral-600 hover:border-blue-300 hover:bg-blue-50"
+                  className="rounded-full border border-neutral-200 bg-white px-2.5 py-1.5 text-left text-[11px] font-medium leading-4 text-neutral-700 transition hover:border-blue-300 hover:bg-blue-50"
                 >
                   {prompt}
                 </button>
@@ -1595,17 +1609,17 @@ export default function WidgetPage() {
                 ref={(node) => {
                   messageRefs.current[index] = node;
                 }}
-                className={`soft-enter rounded-lg transition ${
+                className={`soft-enter group rounded-xl transition ${
                   highlightedMessageIndex === index
                     ? "bg-yellow-100/70 ring-2 ring-yellow-300"
                     : ""
                 } flex ${isUser ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[86%] rounded-lg px-3 py-2 text-sm leading-6 shadow-sm ${
+                  className={`max-w-[86%] text-sm leading-6 ${
                     isUser
-                      ? "bg-gradient-to-br from-blue-600 to-blue-700 text-white"
-                      : "border border-neutral-200 bg-white text-neutral-800"
+                      ? "rounded-2xl bg-blue-600 px-3 py-2 text-white shadow-sm shadow-blue-900/10"
+                      : "px-1 py-1 text-neutral-900"
                   }`}
                 >
                   {message.supplierCard && (
@@ -1746,7 +1760,7 @@ export default function WidgetPage() {
                   {!isUser && (
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       {message.source && (
-                        <span className="rounded-md bg-neutral-100 px-2 py-1 text-[11px] font-medium text-neutral-500">
+                        <span className="rounded-full bg-neutral-100 px-2 py-1 text-[11px] font-medium text-neutral-500 opacity-70">
                           {sourceLabel(message.source)}
                         </span>
                       )}
@@ -1756,7 +1770,7 @@ export default function WidgetPage() {
                         className={`flex h-7 items-center gap-1 rounded-md border px-2 text-[11px] font-medium ${
                           speakingMessageIndex === index
                             ? "border-blue-300 bg-blue-50 text-blue-700"
-                            : "border-neutral-200 text-neutral-500"
+                            : "border-neutral-200 text-neutral-500 opacity-70"
                         } disabled:cursor-not-allowed disabled:opacity-40`}
                         title="Прослушать"
                       >
@@ -1773,7 +1787,7 @@ export default function WidgetPage() {
                         className={`flex h-7 items-center gap-1 rounded-md border px-2 text-[11px] font-medium ${
                           message.feedback === "up"
                             ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                            : "border-neutral-200 text-neutral-500"
+                            : "border-neutral-200 text-neutral-500 opacity-70"
                         }`}
                       >
                         <ThumbsUp size={12} />
@@ -1786,7 +1800,7 @@ export default function WidgetPage() {
                         className={`flex h-7 items-center gap-1 rounded-md border px-2 text-[11px] font-medium ${
                           message.feedback === "down"
                             ? "border-red-300 bg-red-50 text-red-700"
-                            : "border-neutral-200 text-neutral-500"
+                            : "border-neutral-200 text-neutral-500 opacity-70"
                         }`}
                       >
                         <ThumbsDown size={12} />
@@ -1800,13 +1814,14 @@ export default function WidgetPage() {
           })}
 
           {loading && (
-            <div className="soft-enter flex justify-start">
-              <div className="rounded-lg border border-neutral-200 bg-white px-3 py-3 shadow-sm">
+            <div className="soft-enter flex justify-start" aria-live="polite">
+              <div className="rounded-2xl border border-neutral-200 bg-white px-3 py-3 shadow-sm">
                 <div className="flex gap-1">
                   <span className="typing-dot h-2 w-2 rounded-full bg-blue-500" />
                   <span className="typing-dot h-2 w-2 rounded-full bg-blue-500" />
                   <span className="typing-dot h-2 w-2 rounded-full bg-blue-500" />
                 </div>
+                <span className="sr-only">Ищу подходящую информацию…</span>
               </div>
             </div>
           )}
@@ -1843,11 +1858,11 @@ export default function WidgetPage() {
       )}
 
       <footer className="shrink-0 border-t border-neutral-200 bg-white p-3">
-        <div className="flex items-end gap-2 rounded-lg border border-neutral-300 bg-white p-1.5 shadow-sm transition focus-within:border-blue-500 focus-within:shadow-md">
+        <div className="flex items-end gap-2 rounded-2xl border border-neutral-200 bg-white p-1.5 shadow-sm transition focus-within:border-blue-500 focus-within:shadow-lg focus-within:shadow-blue-900/10">
           <input
             ref={receiptInputRef}
             type="file"
-            accept="application/pdf,image/jpeg,image/png,image/webp"
+            accept="application/pdf"
             className="hidden"
             onChange={(event) => {
               const file = event.target.files?.[0];
@@ -1860,7 +1875,7 @@ export default function WidgetPage() {
             type="button"
             onClick={() => receiptInputRef.current?.click()}
             disabled={receiptUploading || loading}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-neutral-200 text-neutral-600 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-300"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-neutral-200 text-neutral-600 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-300"
             title="Загрузить квитанцию"
             aria-label="Загрузить квитанцию"
           >
@@ -1884,13 +1899,14 @@ export default function WidgetPage() {
                 void sendMessage();
               }
             }}
-            placeholder="Напишите вопрос..."
-            className="max-h-28 min-h-11 flex-1 resize-none border-0 bg-transparent px-2 py-2.5 text-sm leading-5 outline-none"
+            placeholder="Вопрос про оплату, квитанцию или показания"
+            aria-label="Сообщение в чат"
+            className="max-h-28 min-h-11 flex-1 resize-none border-0 bg-transparent px-2 py-2.5 text-sm leading-5 outline-none placeholder:text-neutral-400"
           />
           <button
             onClick={() => void sendMessage()}
             disabled={!input.trim() || loading}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-300"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:shadow-none"
             title="Отправить"
             aria-label="Отправить"
           >

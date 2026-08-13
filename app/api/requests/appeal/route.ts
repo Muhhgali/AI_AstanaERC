@@ -3,6 +3,11 @@ import { createClient } from "@supabase/supabase-js";
 import { sendRequestEmail } from "@/lib/requestEmail";
 import { enforceRateLimit, RATE_LIMIT_POLICIES } from "@/lib/rateLimit";
 import { getSupabaseProjectUrl } from "@/lib/supabaseEnv";
+import {
+  getOrCreateVisitorOwnership,
+  getOwnedConversationId,
+  jsonWithVisitorOwnership,
+} from "@/lib/security/visitorOwnership";
 
 const APPEAL_EMAIL_TO = "office.manager@aerc.kz";
 const MAX_FILES = 5;
@@ -70,9 +75,16 @@ async function uploadFiles(files: File[]) {
 }
 
 export async function POST(req: Request) {
+  const visitorOwnership = getOrCreateVisitorOwnership(req);
+  const jsonResponse = (body: unknown, init?: ResponseInit) =>
+    jsonWithVisitorOwnership(body, visitorOwnership, init);
   const rateLimited = enforceRateLimit(req, RATE_LIMIT_POLICIES.publicMutation);
 
   if (rateLimited) {
+    if (visitorOwnership.cookieHeader) {
+      rateLimited.headers.append("Set-Cookie", visitorOwnership.cookieHeader);
+    }
+
     return rateLimited;
   }
 
@@ -82,21 +94,24 @@ export async function POST(req: Request) {
     const topic = readText(formData, "topic");
     const message = readText(formData, "message");
     const contact = readText(formData, "contact");
-    const conversationId = readText(formData, "conversationId") || null;
-    const visitorId = readText(formData, "visitorId") || null;
+    const conversationId = await getOwnedConversationId(
+      getAdminSupabase(),
+      readText(formData, "conversationId"),
+      visitorOwnership.visitorId
+    );
     const files = formData
       .getAll("files")
       .filter((file): file is File => file instanceof File && file.size > 0);
 
     if (!name || !topic || !message) {
-      return Response.json(
+      return jsonResponse(
         { message: "Заполните имя, тему и сообщение." },
         { status: 400 }
       );
     }
 
     if (files.length > MAX_FILES) {
-      return Response.json(
+      return jsonResponse(
         { message: `Можно загрузить не больше ${MAX_FILES} файлов.` },
         { status: 400 }
       );
@@ -105,7 +120,7 @@ export async function POST(req: Request) {
     const oversized = files.find((file) => file.size > MAX_FILE_SIZE);
 
     if (oversized) {
-      return Response.json(
+      return jsonResponse(
         { message: `Файл ${oversized.name} больше 10 МБ.` },
         { status: 400 }
       );
@@ -135,7 +150,7 @@ export async function POST(req: Request) {
     try {
       const payload = {
         conversation_id: conversationId,
-        visitor_id: visitorId,
+        visitor_id: visitorOwnership.visitorId,
         name,
         topic,
         message,
@@ -181,7 +196,7 @@ export async function POST(req: Request) {
       text: emailText,
     });
 
-    return Response.json({
+    return jsonResponse({
       ok: true,
       requestId,
       storageSaved,
@@ -193,7 +208,7 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error("APPEAL REQUEST ERROR:", error);
 
-    return Response.json(
+    return jsonResponse(
       { message: "Не удалось отправить обращение." },
       { status: 500 }
     );

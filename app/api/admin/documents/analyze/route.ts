@@ -1,24 +1,8 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import OpenAI from "openai";
-import { createClient } from "@supabase/supabase-js";
-import { getSupabaseAnonKey, getSupabaseProjectUrl } from "@/lib/supabaseEnv";
 import { enforceRateLimit, RATE_LIMIT_POLICIES } from "@/lib/rateLimit";
+import { requireAdmin } from "@/lib/auth/requireAdmin";
 
-let authClient: ReturnType<typeof createClient<any>> | null = null;
 let openai: OpenAI | null = null;
-
-function getAuthClient() {
-  const supabaseUrl = getSupabaseProjectUrl();
-  const supabaseAnonKey = getSupabaseAnonKey();
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error("Missing SUPABASE_URL or SUPABASE_ANON_KEY");
-  }
-
-  authClient ??= createClient<any>(supabaseUrl, supabaseAnonKey);
-
-  return authClient;
-}
 
 function getOpenAI() {
   if (!process.env.OPENAI_API_KEY) {
@@ -32,26 +16,6 @@ function getOpenAI() {
   return openai;
 }
 
-async function requireUser(req: Request) {
-  const authHeader = req.headers.get("authorization");
-  const token = authHeader?.replace("Bearer ", "");
-
-  if (!token) {
-    return null;
-  }
-
-  const {
-    data: { user },
-    error,
-  } = await getAuthClient().auth.getUser(token);
-
-  if (error || !user) {
-    return null;
-  }
-
-  return user;
-}
-
 export async function POST(req: Request) {
   const rateLimited = enforceRateLimit(
     req,
@@ -62,13 +26,10 @@ export async function POST(req: Request) {
     return rateLimited;
   }
 
-  const user = await requireUser(req);
+  const authorization = await requireAdmin(req);
 
-  if (!user) {
-    return Response.json(
-      { message: "Сессия администратора не прошла проверку." },
-      { status: 401 }
-    );
+  if (!authorization.ok) {
+    return authorization.response;
   }
 
   const formData = await req.formData();
