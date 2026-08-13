@@ -63,6 +63,26 @@ function isMissingManagerWorkspace(error: unknown) {
   );
 }
 
+function isMissingKnowledgeLifecycleColumn(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const maybeError = error as { code?: string; message?: string };
+
+  return (
+    maybeError.code === "42703" ||
+    Boolean(
+      maybeError.message?.includes("language") ||
+        maybeError.message?.includes("status") ||
+        maybeError.message?.includes("metadata") ||
+        maybeError.message?.includes("content_hash") ||
+        maybeError.message?.includes("reviewed_at") ||
+        maybeError.message?.includes("archived_at")
+    )
+  );
+}
+
 function isNoRows(error: unknown) {
   if (!error || typeof error !== "object") {
     return false;
@@ -153,7 +173,7 @@ async function insertKnowledgeDraft(params: {
   let data = insertResult.data as Record<string, unknown> | null;
   let error = insertResult.error;
 
-  if (error && isMissingManagerWorkspace(error)) {
+  if (error && isMissingKnowledgeLifecycleColumn(error)) {
     const { language, status, metadata, content_hash, reviewed_at, archived_at, ...legacyRecord } =
       record;
     void language;
