@@ -538,6 +538,7 @@ export default function WidgetPage() {
   const [fullscreen, setFullscreen] = useState(false);
   const [receiptUploading, setReceiptUploading] = useState(false);
   const [activeDocumentId, setActiveDocumentId] = useState<string | undefined>();
+  const [activeDocumentIds, setActiveDocumentIds] = useState<string[]>([]);
   const [voiceSupported, setVoiceSupported] = useState(false);
   const [speakingMessageIndex, setSpeakingMessageIndex] = useState<
     number | null
@@ -721,6 +722,7 @@ export default function WidgetPage() {
           conversationId,
           visitorId,
           activeDocumentId,
+          activeDocumentIds,
           language,
           messages: updated.map(({ role, content }) => ({
             role,
@@ -746,7 +748,8 @@ export default function WidgetPage() {
           role: "assistant",
           content: data.message ?? "Не удалось получить ответ.",
         source: data.source,
-        activeDocumentId: data.activeDocumentId,
+          activeDocumentId: data.activeDocumentId,
+          activeDocumentIds: data.activeDocumentIds,
           supplierCard: data.supplierCard,
           meterCorrectionForm: data.meterCorrectionForm,
           suggestedQuestions: data.suggestedQuestions,
@@ -1187,6 +1190,7 @@ export default function WidgetPage() {
         suggestedQuestions?: string[];
         documentId?: string;
         activeDocumentId?: string;
+        activeDocumentIds?: string[];
         status?: string;
       };
 
@@ -1195,7 +1199,11 @@ export default function WidgetPage() {
       }
 
       if (data.activeDocumentId || data.documentId) {
-        setActiveDocumentId(data.activeDocumentId ?? data.documentId);
+        const nextId = data.activeDocumentId ?? data.documentId;
+        setActiveDocumentId(nextId);
+        setActiveDocumentIds((prev) =>
+          Array.from(new Set([...prev, ...(data.activeDocumentIds ?? []), nextId].filter(Boolean) as string[])).slice(-8)
+        );
       }
 
       setMessages((prev) => [
@@ -1206,6 +1214,7 @@ export default function WidgetPage() {
           source: data.source ?? "receipt-analysis",
           suggestedQuestions: data.suggestedQuestions,
           activeDocumentId: data.activeDocumentId ?? data.documentId,
+          activeDocumentIds: data.activeDocumentIds,
           documentStatus: data.status,
         },
       ]);
@@ -1862,7 +1871,7 @@ export default function WidgetPage() {
           <input
             ref={receiptInputRef}
             type="file"
-            accept="application/pdf"
+            accept="application/pdf,image/png,image/jpeg"
             className="hidden"
             onChange={(event) => {
               const file = event.target.files?.[0];
@@ -1881,6 +1890,19 @@ export default function WidgetPage() {
           >
             <UploadCloud size={17} />
           </button>
+          {activeDocumentIds.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setActiveDocumentId(undefined);
+                setActiveDocumentIds([]);
+              }}
+              className="hidden shrink-0 rounded-xl border border-amber-200 bg-amber-50 px-2 py-2 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 sm:block"
+              title="Убрать документы из текущего анализа"
+            >
+              Док · {activeDocumentIds.length} ×
+            </button>
+          )}
           <textarea
             ref={textareaRef}
             value={input}

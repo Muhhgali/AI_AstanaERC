@@ -39,10 +39,10 @@ import {
   normalizeUuid,
 } from "@/lib/security/visitorOwnership";
 import {
-  buildDocumentGroundedAnswer,
+  buildMultiDocumentGroundedAnswer,
   isDocumentFollowUpQuestion,
 } from "@/lib/documents/conversation";
-import { loadOwnedResidentDocument } from "@/lib/documents/repository";
+import { loadOwnedResidentDocuments } from "@/lib/documents/repository";
 
 let openai: OpenAI | null = null;
 let adminSupabase: ReturnType<typeof createClient<any>> | null = null;
@@ -1832,6 +1832,17 @@ export async function POST(req: Request) {
         ? bodyObj.conversationId
         : undefined;
     const activeDocumentId = normalizeUuid(bodyObj?.activeDocumentId);
+    const activeDocumentIds = Array.isArray(bodyObj?.activeDocumentIds)
+      ? Array.from(
+          new Set(
+            bodyObj.activeDocumentIds
+              .map((value) => normalizeUuid(value))
+              .filter((value): value is string => Boolean(value))
+          )
+        ).slice(0, 8)
+      : activeDocumentId
+        ? [activeDocumentId]
+        : [];
     const visitorId = visitorOwnership.visitorId;
 
     if (messages.length === 0) {
@@ -1870,17 +1881,17 @@ export async function POST(req: Request) {
     const userMessages = messages.filter((message) => message.role === "user");
 
     if (
-      activeDocumentId &&
+      activeDocumentIds.length > 0 &&
       !submittedMeterCorrection &&
       isDocumentFollowUpQuestion(lastMessage)
     ) {
-      const document = await loadOwnedResidentDocument({
+      const documents = await loadOwnedResidentDocuments({
         supabase: getAdminSupabase(),
-        documentId: activeDocumentId,
+        documentIds: activeDocumentIds,
         visitorId,
       });
 
-      if (!document) {
+      if (documents.length === 0) {
         return jsonResponse(
           {
             message:
@@ -1893,9 +1904,9 @@ export async function POST(req: Request) {
         );
       }
 
-      const assistantMessage = buildDocumentGroundedAnswer({
+      const assistantMessage = buildMultiDocumentGroundedAnswer({
         question: lastMessage,
-        document,
+        documents,
       });
       const saved = await saveTurn({
         conversationId,
@@ -1910,7 +1921,8 @@ export async function POST(req: Request) {
         source: "document-grounded",
         conversationId: saved.conversationId,
         messageId: saved.messageId,
-        activeDocumentId,
+        activeDocumentId: activeDocumentIds[activeDocumentIds.length - 1],
+        activeDocumentIds,
         suggestedQuestions:
           responseLanguage === "kk"
             ? ["Қай кезең көрсетілген?", "Қарыз қай жерде?", "Қандай сома төлеу керек?"]

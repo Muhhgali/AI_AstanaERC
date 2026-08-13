@@ -65,16 +65,19 @@ export async function uploadResidentDocumentFile(params: {
   documentId: string;
   fileHash: string;
   bytes: Uint8Array;
+  contentType?: string;
+  extension?: string;
 }) {
   const path = buildDocumentStoragePath({
     visitorId: params.visitorId,
     documentId: params.documentId,
     fileHash: params.fileHash,
+    extension: params.extension,
   });
   const { error } = await params.supabase.storage
     .from(DOCUMENT_STORAGE_BUCKET)
     .upload(path, params.bytes, {
-      contentType: "application/pdf",
+      contentType: params.contentType ?? "application/pdf",
       upsert: false,
     });
 
@@ -137,6 +140,43 @@ export async function loadOwnedResidentDocument(params: {
   }
 
   return data as ResidentDocumentRecord;
+}
+
+export async function loadOwnedResidentDocuments(params: {
+  supabase: SupabaseClient<any>;
+  documentIds: string[];
+  visitorId: string;
+}) {
+  const uniqueIds = Array.from(new Set(params.documentIds)).slice(0, 8);
+
+  if (uniqueIds.length === 0) {
+    return [];
+  }
+
+  const { data, error } = await params.supabase
+    .from("resident_documents")
+    .select(
+      "id,conversation_id,visitor_id,file_name,file_type,file_size,storage_bucket,storage_path,file_hash,status,document_type,extraction_method,page_count,extracted_text,structured_result,warnings,error_message,created_at,updated_at,deleted_at"
+    )
+    .in("id", uniqueIds)
+    .eq("visitor_id", params.visitorId)
+    .is("deleted_at", null);
+
+  if (error) {
+    if (isMissingDocumentsTable(error)) {
+      return [];
+    }
+
+    throw error;
+  }
+
+  const byId = new Map(
+    (data as ResidentDocumentRecord[]).map((document) => [document.id, document])
+  );
+
+  return uniqueIds
+    .map((id) => byId.get(id))
+    .filter((document): document is ResidentDocumentRecord => Boolean(document));
 }
 
 export async function softDeleteOwnedResidentDocument(params: {

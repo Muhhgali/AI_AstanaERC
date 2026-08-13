@@ -7,12 +7,34 @@ export type DocumentStatus =
   | "deleted";
 
 export type DocumentType =
-  | "receipt"
-  | "payment_receipt"
+  | "epd_receipt"
+  | "bank_payment_receipt"
   | "application"
+  | "statement"
+  | "other"
+  | "unknown"
+  /**
+   * Backward-compatible aliases from the Stage 5 MVP.
+   * New code should write epd_receipt / bank_payment_receipt.
+   */
+  | "receipt"
+  | "payment_receipt";
+
+export type DocumentExtractionMethod = "native_pdf" | "ocr" | "vision" | "none";
+
+export type DocumentFileKind = "pdf" | "png" | "jpeg";
+
+export type PaymentStatus =
+  | "successful"
+  | "processing"
+  | "failed"
+  | "cancelled"
   | "unknown";
 
-export type DocumentExtractionMethod = "native_pdf" | "ocr" | "none";
+export type MoneyAmount = {
+  amount?: number;
+  currency?: string;
+};
 
 export type ReceiptLineItem = {
   supplier?: string;
@@ -23,21 +45,62 @@ export type ReceiptLineItem = {
   raw: string;
 };
 
-export type ReceiptStructuredResult = {
-  documentType: DocumentType;
+export type BankPaymentReceiptAnalysis = {
+  documentType: "bank_payment_receipt" | "payment_receipt";
+  bankName?: string;
+  paymentStatus: PaymentStatus;
+  paymentDate?: string;
+  paymentTime?: string;
+  amount?: number;
+  currency?: string;
+  feeAmount?: number;
+  recipientName?: string;
+  serviceName?: string;
+  purpose?: string;
+  accountNumber?: string;
+  transactionId?: string;
+  referenceNumber?: string;
+  payerName?: string;
+  extractionConfidence: number;
+  missingFields: string[];
+  warnings: string[];
+};
+
+export type EpdReceiptAnalysis = {
+  documentType: "epd_receipt" | "receipt";
   period?: string;
+  documentDate?: string;
+  formationDate?: string;
   accountNumber?: string;
   address?: string;
   payerName?: string;
+  previousBalance?: number;
+  chargesAmount?: number;
+  paymentsShown?: number;
+  debtAmount?: number;
+  overpaymentAmount?: number;
   totalDue?: number;
-  previousDebt?: number;
-  paymentAmount?: number;
-  paymentDate?: string;
+  amountDue?: number;
   suppliers: string[];
+  services: string[];
   lineItems: ReceiptLineItem[];
   missingFields: string[];
   warnings: string[];
 };
+
+export type UnknownDocumentAnalysis = {
+  documentType: Exclude<
+    DocumentType,
+    "epd_receipt" | "receipt" | "bank_payment_receipt" | "payment_receipt"
+  >;
+  missingFields: string[];
+  warnings: string[];
+};
+
+export type ReceiptStructuredResult =
+  | EpdReceiptAnalysis
+  | BankPaymentReceiptAnalysis
+  | UnknownDocumentAnalysis;
 
 export type ResidentDocumentRecord = {
   id: string;
@@ -62,8 +125,44 @@ export type ResidentDocumentRecord = {
   deleted_at?: string | null;
 };
 
+export type DocumentRelationship =
+  | "strong_match"
+  | "probable_match"
+  | "ambiguous"
+  | "no_match";
+
+export type ReconciliationSignal = {
+  type:
+    | "account_match"
+    | "account_mismatch"
+    | "amount_match"
+    | "amount_only"
+    | "partial_payment"
+    | "over_payment"
+    | "recipient_match"
+    | "recipient_missing"
+    | "date_available"
+    | "status_successful"
+    | "status_not_successful";
+  severity: "positive" | "warning" | "negative" | "info";
+  message: string;
+};
+
+export type DocumentSetAnalysis = {
+  relationship: DocumentRelationship;
+  epd?: EpdReceiptAnalysis;
+  payments: BankPaymentReceiptAnalysis[];
+  paymentTotal?: number;
+  matchedPaymentTotal?: number;
+  signals: ReconciliationSignal[];
+  timeline: string[];
+  missingEvidence: string[];
+};
+
 export type DocumentUploadResult = {
   documentId?: string;
+  activeDocumentId?: string;
+  activeDocumentIds?: string[];
   status: DocumentStatus;
   documentType: DocumentType;
   extractionMethod: DocumentExtractionMethod;

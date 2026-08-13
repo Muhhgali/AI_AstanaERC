@@ -12,14 +12,14 @@ import {
   classifyDocument,
   extractReceiptStructuredData,
 } from "@/lib/documents/receiptExtraction";
-import { NativePdfExtractor } from "@/lib/documents/extraction";
+import { NativePdfExtractor, OcrExtractor } from "@/lib/documents/extraction";
 import {
   createResidentDocument,
   isMissingDocumentsTable,
   updateResidentDocument,
   uploadResidentDocumentFile,
 } from "@/lib/documents/repository";
-import { validatePdfFile } from "@/lib/documents/validation";
+import { validateResidentDocumentFile } from "@/lib/documents/validation";
 import type { ChatLanguage } from "@/lib/types";
 
 let adminClient: ReturnType<typeof createClient<any>> | null = null;
@@ -48,12 +48,12 @@ function suggestedQuestions(language: ChatLanguage) {
     ? [
         "Қай кезең көрсетілген?",
         "Қарыз қай жерде?",
-        "Қандай сома төлеу керек?",
+        "Төлем неге әлі қарыз болып тұр?",
       ]
     : [
         "Какой период указан?",
         "Где здесь долг?",
-        "Почему такая сумма?",
+        "Почему долг, если оплатил?",
       ];
 }
 
@@ -102,7 +102,7 @@ export async function POST(req: Request) {
   const formData = await req.formData();
   const file = formData.get("file");
   const language = normalizeLanguage(formData.get("language"));
-  const validation = await validatePdfFile(file);
+  const validation = await validateResidentDocumentFile(file);
 
   if (!validation.ok) {
     return jsonResponse({ message: validation.message }, { status: 400 });
@@ -123,7 +123,7 @@ export async function POST(req: Request) {
       visitorId: visitorOwnership.visitorId,
       conversationId,
       fileName: typedFile.name,
-      fileType: typedFile.type,
+      fileType: validation.contentType,
       fileSize: typedFile.size,
       fileHash: validation.hash,
     });
@@ -131,7 +131,7 @@ export async function POST(req: Request) {
     if (isMissingDocumentsTable(error)) {
       return jsonResponse({
         message:
-          "Документ принят, но Stage 5 таблица resident_documents ещё не применена в Supabase. Администратору нужно выполнить миграцию Document Intelligence.",
+          "Документ принят, но таблица resident_documents ещё не применена в Supabase. Нужно выполнить миграцию Document Intelligence.",
         source: "document-setup-required",
         setupRequired: true,
       });
@@ -147,7 +147,10 @@ export async function POST(req: Request) {
       documentId,
       fileHash: validation.hash,
       bytes: validation.bytes,
+      contentType: validation.contentType,
+      extension: validation.extension,
     });
+
     await updateResidentDocument({
       supabase: getAdminClient(),
       documentId,
@@ -157,7 +160,10 @@ export async function POST(req: Request) {
       },
     });
 
-    const extraction = await new NativePdfExtractor().extract(validation.bytes);
+    const extraction =
+      validation.kind === "pdf"
+        ? await new NativePdfExtractor().extract(validation.bytes)
+        : await new OcrExtractor().extract();
 
     if (extraction.status === "failed") {
       await updateResidentDocument({
@@ -188,8 +194,6 @@ export async function POST(req: Request) {
       const summary = buildReceiptSummary(
         {
           documentType: "unknown",
-          suppliers: [],
-          lineItems: [],
           missingFields: ["text"],
           warnings: extraction.warnings,
         },
@@ -210,6 +214,8 @@ export async function POST(req: Request) {
 
       return jsonResponse({
         documentId,
+        activeDocumentId: documentId,
+        activeDocumentIds: [documentId],
         message: summary,
         source: "document-analysis",
         status: "ocr_required",
@@ -219,7 +225,6 @@ export async function POST(req: Request) {
 
     const structured = extractReceiptStructuredData(extraction.text);
     const documentType = classifyDocument(extraction.text);
-    structured.documentType = documentType;
     const summary = buildReceiptSummary(structured, "ready");
 
     await updateResidentDocument({
@@ -235,11 +240,12 @@ export async function POST(req: Request) {
         warnings: [...extraction.warnings, ...structured.warnings],
       },
     });
+
     await saveLegacyReceiptRequest({
       conversationId,
       visitorId: visitorOwnership.visitorId,
       fileName: typedFile.name,
-      fileType: typedFile.type,
+      fileType: validation.contentType,
       fileSize: typedFile.size,
       summary,
     });
@@ -247,6 +253,7 @@ export async function POST(req: Request) {
     return jsonResponse({
       documentId,
       activeDocumentId: documentId,
+      activeDocumentIds: [documentId],
       message: summary,
       source: "document-analysis",
       status: "ready",
@@ -256,9 +263,7 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     const message =
-      error instanceof Error
-        ? error.message
-        : "Не удалось обработать PDF-квитанцию.";
+      error instanceof Error ? error.message : "Не удалось обработать документ.";
 
     if (documentId) {
       await updateResidentDocument({
