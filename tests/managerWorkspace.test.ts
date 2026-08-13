@@ -103,16 +103,16 @@ describe("manager workspace", () => {
     expect(migration).toContain("manager_workspace_audit_events");
   });
 
-  it("exposes skip action to return an assigned question to queue", () => {
+  it("exposes delete action to remove a bad question from the work queue", () => {
     const route = fs.readFileSync(
       path.join(process.cwd(), "app", "api", "manager", "workspace", "route.ts"),
       "utf8"
     );
 
-    expect(route).toContain('"skip"');
-    expect(route).toContain("assignment_status: \"unassigned\"");
-    expect(route).toContain("new_status: \"unassigned\"");
-    expect(route).toContain("previous_assignee: userId");
+    expect(route).toContain('"delete_question"');
+    expect(route).toContain("status: \"resolved\"");
+    expect(route).toContain("assignment_status: \"completed\"");
+    expect(route).toContain("Вопрос удалён из рабочей очереди.");
   });
 
   it("prioritizes no-match repeated questions over weak isolated matches", () => {

@@ -130,6 +130,8 @@ type ManagerWorkspaceItem = KnowledgeGap & {
 type ManagerWorkspaceData = {
   me: { id: string; roles: WorkspaceRole[] };
   items: ManagerWorkspaceItem[];
+  queueItems?: ManagerWorkspaceItem[];
+  knowledgeItems?: KnowledgeItem[];
   unassignedCount: number;
   activeLimit: number;
   setupRequired?: boolean;
@@ -994,6 +996,8 @@ export default function AdminPage() {
           activeLimit: data.activeLimit ?? prev?.activeLimit ?? 5,
           unassignedCount: data.unassignedCount ?? prev?.unassignedCount ?? 0,
           items: data.items ?? prev?.items ?? [],
+          queueItems: data.queueItems ?? prev?.queueItems ?? [],
+          knowledgeItems: data.knowledgeItems ?? prev?.knowledgeItems ?? [],
           setupRequired: data.setupRequired ?? prev?.setupRequired,
           message: data.message,
         }));
@@ -2410,14 +2414,15 @@ export default function AdminPage() {
                             <button
                               onClick={() =>
                                 void mutateManagerWorkspace({
-                                  action: "skip",
+                                  action: "delete_question",
                                   gapId: item.id,
                                   expectedVersion: item.manager_version,
                                 })
                               }
                               disabled={managerWorkspaceSaving}
-                              className="h-9 rounded-md border border-neutral-300 px-3 text-sm font-medium text-neutral-600 hover:bg-neutral-50 disabled:opacity-60"
+                              className="h-9 rounded-md border border-red-300 px-3 text-[0px] font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
                             >
+                              <span className="text-sm">Удалить вопрос</span>
                               Пропустить
                             </button>
                           </div>
@@ -2441,7 +2446,7 @@ export default function AdminPage() {
                             />
                           </label>
                           <div>
-                            <label className="block">
+                            <label className="hidden">
                               <span className="mb-1 block text-sm font-medium text-neutral-700">
                                 Источник
                               </span>
@@ -2470,8 +2475,7 @@ export default function AdminPage() {
                               disabled={
                                 managerWorkspaceSaving ||
                                 !canEdit ||
-                                !draft.answer.trim() ||
-                                !draft.source.trim()
+                                !draft.answer.trim()
                               }
                               className="mt-3 h-10 w-full rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
                             >
@@ -2484,6 +2488,93 @@ export default function AdminPage() {
                   })}
                 </div>
               )}
+            </section>
+            <section className="mt-5 overflow-hidden rounded-lg border border-neutral-200 bg-white">
+              <div className="border-b border-neutral-200 p-4">
+                <h2 className="font-semibold">История вопросов</h2>
+                <p className="mt-1 text-sm text-neutral-500">
+                  Общая очередь и обработанные вопросы. Ненужные вопросы можно удалить, чтобы их больше не брали.
+                </p>
+              </div>
+              <div className="max-h-[520px] divide-y divide-neutral-200 overflow-auto">
+                {(managerWorkspace?.queueItems ?? []).length === 0 ? (
+                  <div className="p-5 text-sm text-neutral-500">Вопросов пока нет.</div>
+                ) : (
+                  (managerWorkspace?.queueItems ?? []).map((item) => (
+                    <article key={item.id} className="p-4">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap gap-2 text-xs">
+                            <span className="rounded-md bg-neutral-100 px-2 py-1 font-semibold text-neutral-700">
+                              {item.status}
+                            </span>
+                            <span className="rounded-md bg-blue-50 px-2 py-1 font-semibold text-blue-700">
+                              {item.assignment_status}
+                            </span>
+                            <span className="rounded-md bg-neutral-50 px-2 py-1 text-neutral-500">
+                              {item.created_at ? formatDate(item.created_at) : "—"}
+                            </span>
+                          </div>
+                          <div className="mt-2 font-medium">
+                            {item.sanitized_user_question || item.user_question || item.topic}
+                          </div>
+                          {item.prepared_answer && (
+                            <div className="mt-2 whitespace-pre-wrap rounded-md bg-neutral-50 p-3 text-sm text-neutral-600">
+                              {item.prepared_answer}
+                            </div>
+                          )}
+                        </div>
+                        {item.status === "open" && (
+                          <button
+                            onClick={() =>
+                              void mutateManagerWorkspace({
+                                action: "delete_question",
+                                gapId: item.id,
+                                expectedVersion: item.manager_version,
+                              })
+                            }
+                            disabled={managerWorkspaceSaving}
+                            className="h-9 rounded-md border border-red-300 px-3 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
+                          >
+                            Удалить
+                          </button>
+                        )}
+                      </div>
+                    </article>
+                  ))
+                )}
+              </div>
+            </section>
+
+            <section className="mt-5 overflow-hidden rounded-lg border border-neutral-200 bg-white">
+              <div className="border-b border-neutral-200 p-4">
+                <h2 className="font-semibold">Общая база знаний</h2>
+                <p className="mt-1 text-sm text-neutral-500">
+                  Просмотр того, что уже есть в базе. Редактирование и публикация остаются в админском review.
+                </p>
+              </div>
+              <div className="max-h-[520px] divide-y divide-neutral-200 overflow-auto">
+                {(managerWorkspace?.knowledgeItems ?? []).length === 0 ? (
+                  <div className="p-5 text-sm text-neutral-500">База знаний пока пустая или не загрузилась.</div>
+                ) : (
+                  (managerWorkspace?.knowledgeItems ?? []).map((item) => (
+                    <article key={item.id} className="p-4">
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="rounded-md bg-neutral-100 px-2 py-1 font-semibold text-neutral-700">
+                          {item.category}
+                        </span>
+                        <span className="rounded-md bg-blue-50 px-2 py-1 font-semibold text-blue-700">
+                          {item.verified ? "verified" : item.status ?? "draft"}
+                        </span>
+                      </div>
+                      <h3 className="mt-2 font-semibold">{item.title}</h3>
+                      <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-sm text-neutral-600">
+                        {item.content}
+                      </p>
+                    </article>
+                  ))
+                )}
+              </div>
             </section>
             {isAdminUser && (
               <section className="mt-5 overflow-hidden rounded-lg border border-neutral-200 bg-white">

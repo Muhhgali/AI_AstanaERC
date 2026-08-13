@@ -18,6 +18,7 @@ import {
 type WorkspaceAction =
   | "claim_next"
   | "skip"
+  | "delete_question"
   | "start"
   | "submit_review"
   | "return_review"
@@ -123,7 +124,8 @@ async function loadGap(gapId: string) {
 }
 
 async function loadMyWorkspace(userId: string) {
-  const { data: items, error } = await getAdminClient()
+  const client = getAdminClient();
+  const { data: items, error } = await client
     .from("knowledge_gaps")
     .select(GAP_SELECT)
     .eq("assigned_to", userId)
@@ -134,7 +136,7 @@ async function loadMyWorkspace(userId: string) {
     throw error;
   }
 
-  const { count: unassignedCount, error: countError } = await getAdminClient()
+  const { count: unassignedCount, error: countError } = await client
     .from("knowledge_gaps")
     .select("id", { count: "exact", head: true })
     .eq("status", "open")
@@ -144,8 +146,47 @@ async function loadMyWorkspace(userId: string) {
     throw countError;
   }
 
+  const { data: queueItems, error: queueError } = await client
+    .from("knowledge_gaps")
+    .select(GAP_SELECT)
+    .order("updated_at", { ascending: false })
+    .limit(120);
+
+  if (queueError) {
+    throw queueError;
+  }
+
+  const knowledgeResult = await client
+    .from("knowledge")
+    .select(
+      "id,title,category,content,language,status,priority,verified,source,metadata,content_hash,reviewed_at,archived_at"
+    )
+    .order("verified", { ascending: false })
+    .order("priority", { ascending: false })
+    .limit(120);
+  let knowledgeItems = knowledgeResult.data as Record<string, unknown>[] | null;
+  let knowledgeError = knowledgeResult.error;
+
+  if (knowledgeError && isMissingKnowledgeLifecycleColumn(knowledgeError)) {
+    const legacyKnowledgeResult = await client
+      .from("knowledge")
+      .select("id,title,category,content,priority,verified,source")
+      .order("verified", { ascending: false })
+      .order("priority", { ascending: false })
+      .limit(120);
+
+    knowledgeItems = legacyKnowledgeResult.data as Record<string, unknown>[] | null;
+    knowledgeError = legacyKnowledgeResult.error;
+  }
+
+  if (knowledgeError) {
+    throw knowledgeError;
+  }
+
   return {
     items: ((items ?? []) as ManagerWorkspaceGap[]).map(publicGap),
+    queueItems: ((queueItems ?? []) as ManagerWorkspaceGap[]).map(publicGap),
+    knowledgeItems: knowledgeItems ?? [],
     unassignedCount: unassignedCount ?? 0,
   };
 }
@@ -305,6 +346,73 @@ export async function POST(req: Request) {
       return Response.json({ message: "gapId is required" }, { status: 400 });
     }
 
+    if (action === "delete_question") {
+      const gap = await loadGap(gapId);
+      const canDelete =
+        gap.assigned_to === userId ||
+        !gap.assigned_to ||
+        roles.includes("admin") ||
+        roles.includes("reviewer");
+
+      if (!canDelete) {
+        return Response.json({ message: "Forbidden" }, { status: 403 });
+      }
+
+      if (
+        typeof body.expectedVersion === "number" &&
+        gap.manager_version !== body.expectedVersion
+      ) {
+        return Response.json(
+          { message: "Задача уже изменилась. Обнови список перед удалением." },
+          { status: 409 }
+        );
+      }
+
+      const { data, error } = await getAdminClient()
+        .from("knowledge_gaps")
+        .update({
+          assignment_status: "completed",
+          status: "resolved",
+          resolved_at: new Date().toISOString(),
+          completed_at: new Date().toISOString(),
+          review_comment: cleanText(body.reviewComment) || "Удалено менеджером",
+        })
+        .eq("id", gapId)
+        .eq("manager_version", gap.manager_version)
+        .select(GAP_SELECT)
+        .single();
+
+      if (error) {
+        return Response.json(
+          {
+            message: isNoRows(error)
+              ? "Задача уже изменилась. Обнови список."
+              : error.message,
+          },
+          { status: isNoRows(error) ? 409 : 500 }
+        );
+      }
+
+      await getAdminClient().from("manager_workspace_audit_events").insert({
+        actor_id: userId,
+        action: "delete_question",
+        entity: "knowledge_gap",
+        entity_id: gapId,
+        previous_status: gap.assignment_status,
+        new_status: "completed",
+        previous_assignee: gap.assigned_to,
+        new_assignee: gap.assigned_to,
+      });
+
+      const workspace = await loadMyWorkspace(userId);
+
+      return Response.json({
+        item: publicGap(data as ManagerWorkspaceGap),
+        message: "Вопрос удалён из рабочей очереди.",
+        ...workspace,
+      });
+    }
+
     if (action === "skip") {
       const gap = await loadGap(gapId);
 
@@ -402,11 +510,11 @@ export async function POST(req: Request) {
 
     if (action === "submit_review") {
       const answer = cleanText(body.answer);
-      const source = cleanText(body.source);
+      const source = cleanText(body.source) || "manager-workspace";
 
-      if (!answer || !source) {
+      if (!answer) {
         return Response.json(
-          { message: "answer and source are required" },
+          { message: "answer is required" },
           { status: 400 }
         );
       }
