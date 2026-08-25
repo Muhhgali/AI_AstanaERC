@@ -54,6 +54,10 @@ import {
   buildEpdTransitOverpaymentAnswer,
   isEpdTransitOverpaymentIntent,
 } from "@/lib/epdTransitOverpayment";
+import {
+  buildEpdEarlyPaymentDifferenceAnswer,
+  isEpdEarlyPaymentDifferenceIntent,
+} from "@/lib/epdEarlyPaymentDifference";
 
 let openai: OpenAI | null = null;
 let adminSupabase: ReturnType<typeof createClient<any>> | null = null;
@@ -2516,6 +2520,31 @@ export async function POST(req: Request) {
           question: lastMessage,
           source: "knowledge-direct",
           category: "receipts",
+          language: responseLanguage,
+        }),
+      });
+    }
+
+    if (isEpdEarlyPaymentDifferenceIntent(lastMessage)) {
+      const assistantMessage =
+        buildEpdEarlyPaymentDifferenceAnswer(responseLanguage);
+      const saved = await saveTurn({
+        conversationId,
+        visitorId,
+        userMessage: lastMessage,
+        assistantMessage,
+        source: "knowledge-direct",
+      });
+
+      return jsonResponse({
+        message: assistantMessage,
+        source: "knowledge-direct",
+        conversationId: saved.conversationId,
+        messageId: saved.messageId,
+        suggestedQuestions: buildSuggestedQuestions({
+          question: lastMessage,
+          source: "knowledge-direct",
+          category: "payments",
           language: responseLanguage,
         }),
       });

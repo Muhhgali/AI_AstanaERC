@@ -65,6 +65,7 @@ export type BankPaymentReceiptAnalysis = {
   transactionId?: string;
   referenceNumber?: string;
   payerName?: string;
+  lineItems?: ReceiptLineItem[];
   extractionConfidence: number;
   missingFields: string[];
   warnings: string[];

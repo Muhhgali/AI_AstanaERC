@@ -177,6 +177,15 @@ function answerFromBank(question: string, receipt: BankPaymentReceiptAnalysis) {
     return [
       receipt.amount !== undefined ? `Сумма оплаты по банковскому чеку: ${money(receipt.amount)}.` : "Сумма оплаты в чеке не найдена.",
       receipt.feeAmount !== undefined ? `Комиссия отдельно: ${money(receipt.feeAmount)}.` : null,
+      receipt.lineItems?.length
+        ? "Строки оплаты в чеке:\n" +
+          receipt.lineItems
+            .slice(0, 10)
+            .map((item) =>
+              `- ${[item.service, money(item.amount)].filter(Boolean).join(": ")}`
+            )
+            .join("\n")
+        : null,
       "Комиссия не считается суммой оплаты по ЕПД.",
     ]
       .filter(Boolean)

@@ -459,6 +459,66 @@ function detectPaymentStatus(text: string): BankPaymentReceiptAnalysis["paymentS
   return "unknown";
 }
 
+function extractBankPaymentLineItems(text: string): ReceiptLineItem[] {
+  const items: ReceiptLineItem[] = [];
+  const serviceBuffer: string[] = [];
+
+  for (const value of text.split(/\r?\n/)) {
+    const raw = value.trim();
+
+    if (!raw || /^--\s*\d+\s+of\s+\d+\s*--$/i.test(raw)) {
+      continue;
+    }
+
+    const paymentAmount = normalizeNumber(
+      raw.match(/(?:оплачиваю|төлем|оплата)\s*[:\-]?\s*(-?\d[\d\s]*[,.]\d{1,2})\s*(?:₸|тг|kzt)?/i)?.[1]
+    );
+
+    if (paymentAmount !== undefined) {
+      const service = serviceBuffer
+        .slice(-3)
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      items.push({
+        raw,
+        amount: paymentAmount,
+        amountDue: paymentAmount,
+        service: service || undefined,
+      });
+      serviceBuffer.length = 0;
+      continue;
+    }
+
+    const debtAmount = normalizeNumber(
+      raw.match(/(?:қарыз|долг)\s*[:\-]?\s*(-?\d[\d\s]*[,.]\d{1,2})\s*(?:₸|тг|kzt)?/i)?.[1]
+    );
+
+    if (debtAmount !== undefined && items.length > 0) {
+      items[items.length - 1].debt = debtAmount;
+      continue;
+    }
+
+    if (
+      /^(астана\s+ерц|платеж|платёж|комиссия|№|дата|лицев|с карты|референс|валюта|итого)/i.test(
+        raw
+      )
+    ) {
+      serviceBuffer.length = 0;
+      continue;
+    }
+
+    serviceBuffer.push(raw);
+
+    if (serviceBuffer.length > 4) {
+      serviceBuffer.shift();
+    }
+  }
+
+  return items.slice(0, 30);
+}
+
 export function extractBankPaymentReceiptAnalysis(
   text: string
 ): BankPaymentReceiptAnalysis {
@@ -510,6 +570,7 @@ export function extractBankPaymentReceiptAnalysis(
       /(?:плательщик|payer|отправитель)\s*[:\-]?\s*([а-яёa-z .-]{5,100})/i,
     ])
   );
+  const lineItems = extractBankPaymentLineItems(text);
   const missingFields = [
     bankName ? null : "bankName",
     paymentStatus !== "unknown" ? null : "paymentStatus",
@@ -540,6 +601,7 @@ export function extractBankPaymentReceiptAnalysis(
     transactionId,
     referenceNumber,
     payerName,
+    lineItems,
     extractionConfidence: extractionConfidence(
       [bankName, paymentStatus !== "unknown" ? paymentStatus : undefined, paymentDate, amount, recipientName, accountNumber],
       6

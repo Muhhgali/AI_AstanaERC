@@ -57,6 +57,28 @@ Halyk Homebank
 Reference: HKB-777888
 `;
 
+const halykDetailedText = `
+Астана ЕРЦ
+Платеж выполнен успешно
+31 587,12 ₸
+Комиссия: 0,00 ₸
+№ квитанции 2421720194
+Дата 03.03.2026 17:23
+Лицевой счёт 000000000
+Референс 606294386718
+Валюта KZT
+ААЭК
+электроэнергиясы/Электроэнергия
+Астана-РЭК
+Оплачиваю 11 070,25 ₸
+қарыз/долг 0,00 ₸
+Сумен жабдықтауTҚ/Водоснабжение
+по ПУ
+Оплачиваю 647,71 ₸
+қарыз/долг 0,00 ₸
+Итого 31 587,12 ₸
+`;
+
 const epdSaldoText = `
 ЕПД
 Лицевой счёт: 000000000
@@ -154,6 +176,31 @@ describe("document intelligence", () => {
     expect(result.amount).toBe(5000);
     expect(result.feeAmount).toBe(100);
     expect(result.accountNumber).toBe("555555");
+  });
+
+  it("extracts service line payments from detailed Halyk-style receipts", () => {
+    const result = extractBankPaymentReceiptAnalysis(halykDetailedText);
+
+    expect(result.paymentStatus).toBe("successful");
+    expect(result.paymentDate).toBe("03.03.2026");
+    expect(result.amount).toBe(31587.12);
+    expect(result.lineItems?.[0]?.service).toContain("Электроэнергия");
+    expect(result.lineItems?.[0]?.amount).toBe(11070.25);
+    expect(result.lineItems?.[0]?.debt).toBe(0);
+    expect(result.lineItems?.[1]?.service).toContain("Водоснабжение");
+    expect(result.lineItems?.[1]?.amount).toBe(647.71);
+  });
+
+  it("answers with bank receipt service lines when they were extracted", () => {
+    const document = doc("halyk-detailed", extractBankPaymentReceiptAnalysis(halykDetailedText));
+    const answer = buildDocumentGroundedAnswer({
+      question: "Сколько оплатил по свету?",
+      document,
+    });
+
+    expect(answer).toContain("Строки оплаты");
+    expect(answer).toContain("Электроэнергия");
+    expect(answer).toContain("11 070,25");
   });
 
   it("answers single-document follow-up questions from the active document", () => {
