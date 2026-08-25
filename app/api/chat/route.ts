@@ -50,6 +50,10 @@ import {
   sanitizeKnowledgeGapQuestion,
   type KnowledgeGapReason,
 } from "@/lib/knowledgeGaps";
+import {
+  buildEpdTransitOverpaymentAnswer,
+  isEpdTransitOverpaymentIntent,
+} from "@/lib/epdTransitOverpayment";
 
 let openai: OpenAI | null = null;
 let adminSupabase: ReturnType<typeof createClient<any>> | null = null;
@@ -2487,6 +2491,31 @@ export async function POST(req: Request) {
         suggestedQuestions: buildSuggestedQuestions({
           question: lastMessage,
           source: "supplier-lookup-help",
+          language: responseLanguage,
+        }),
+      });
+    }
+
+    if (isEpdTransitOverpaymentIntent(lastMessage)) {
+      const assistantMessage =
+        buildEpdTransitOverpaymentAnswer(responseLanguage);
+      const saved = await saveTurn({
+        conversationId,
+        visitorId,
+        userMessage: lastMessage,
+        assistantMessage,
+        source: "knowledge-direct",
+      });
+
+      return jsonResponse({
+        message: assistantMessage,
+        source: "knowledge-direct",
+        conversationId: saved.conversationId,
+        messageId: saved.messageId,
+        suggestedQuestions: buildSuggestedQuestions({
+          question: lastMessage,
+          source: "knowledge-direct",
+          category: "receipts",
           language: responseLanguage,
         }),
       });
