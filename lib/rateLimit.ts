@@ -78,12 +78,23 @@ export const RATE_LIMIT_POLICIES = {
   },
   adminAiMutation: {
     namespace: "admin-ai-mutation",
-    limit: 30,
+    // Staff review/publish of knowledge is bursty (one PATCH per card).
+    // This is not a public endpoint; OpenAI spend is still bounded.
+    limit: 180,
     windowMs: 10 * 60_000,
   },
 } satisfies Record<string, RateLimitPolicy>;
 
+const DEV_BYPASS_NAMESPACES = new Set(["admin-ai-mutation"]);
+
 const defaultStore = new InMemoryRateLimitStore();
+
+export function shouldBypassRateLimit(policy: RateLimitPolicy) {
+  return (
+    process.env.NODE_ENV === "development" &&
+    DEV_BYPASS_NAMESPACES.has(policy.namespace)
+  );
+}
 
 function getClientSignal(request: Request) {
   const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
@@ -100,6 +111,10 @@ export function enforceRateLimit(
   store: RateLimitStore = defaultStore,
   now = Date.now()
 ) {
+  if (shouldBypassRateLimit(policy)) {
+    return null;
+  }
+
   const pathname = new URL(request.url).pathname;
   const clientKey = `${policy.namespace}:${pathname}:${getClientSignal(request)}`;
   const result = store.consume(clientKey, policy, now);
@@ -109,7 +124,10 @@ export function enforceRateLimit(
   }
 
   return Response.json(
-    { message: "Too many requests. Please try again later." },
+    {
+      message: "Too many requests. Please try again later.",
+      retryAfterSeconds: result.retryAfterSeconds,
+    },
     {
       status: 429,
       headers: {

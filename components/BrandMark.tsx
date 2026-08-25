@@ -34,7 +34,7 @@ export function BrandMark({
           alt="Астана ЕРЦ"
           fill
           sizes="224px"
-          className="h-full w-full object-contain object-left"
+          className="h-full w-full object-contain object-left dark:mix-blend-screen"
         />
       </div>
     );
@@ -42,7 +42,7 @@ export function BrandMark({
 
   return (
     <div
-      className={`${markSizes[size]} relative flex shrink-0 items-center justify-center overflow-hidden rounded-xl border border-sky-100 bg-white shadow-sm ${className}`}
+      className={`${markSizes[size]} relative flex shrink-0 items-center justify-center overflow-hidden rounded-xl border border-sky-100 bg-white shadow-sm dark:border-blue-200/70 ${className}`}
       aria-label="Астана ЕРЦ"
     >
       <Image
@@ -50,7 +50,7 @@ export function BrandMark({
         alt="Астана ЕРЦ"
         fill
         sizes="56px"
-        className="h-[78%] w-[78%] object-contain"
+        className="h-[78%] w-[78%] object-contain dark:mix-blend-screen"
       />
     </div>
   );

@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BrandMark } from "@/components/BrandMark";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import type {
   ChatMessage,
   ChatResponse,
@@ -360,7 +361,7 @@ function MeterCorrectionFormCard({
       <button
         onClick={() => void submit()}
         disabled={disabled || submitted}
-        className="mt-3 h-10 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-300"
+        className="mt-3 h-10 rounded-md bg-blue-600 px-4 text-sm font-semibold text-on-accent hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-300"
       >
         {submitted ? "Заявка отправлена" : "Отправить заявку"}
       </button>
@@ -503,7 +504,7 @@ function AppealRequestFormCard({
                 files: Array.from(event.target.files ?? []),
               }))
             }
-            className="w-full rounded-md border border-dashed border-neutral-300 bg-white px-3 py-3 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-neutral-900 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white"
+            className="w-full rounded-md border border-dashed border-neutral-300 bg-white px-3 py-3 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-blue-600 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-on-accent"
           />
         </label>
       </div>
@@ -511,7 +512,7 @@ function AppealRequestFormCard({
       <button
         onClick={() => void submit()}
         disabled={disabled || submitted}
-        className="mt-3 h-10 rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-300"
+        className="mt-3 h-10 rounded-md bg-emerald-600 px-4 text-sm font-semibold text-on-accent hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-neutral-300"
       >
         {submitted ? "Обращение отправлено" : "Отправить обращение"}
       </button>
@@ -666,7 +667,7 @@ function AppointmentRequestFormCard({
       <button
         onClick={() => void submit()}
         disabled={disabled || submitted}
-        className="mt-3 h-10 rounded-md bg-violet-700 px-4 text-sm font-semibold text-white hover:bg-violet-800 disabled:cursor-not-allowed disabled:bg-neutral-300"
+        className="mt-3 h-10 rounded-md bg-violet-600 px-4 text-sm font-semibold text-on-accent hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-neutral-300"
       >
         {submitted ? "Заявка отправлена" : "Записаться на прием"}
       </button>
@@ -1634,7 +1635,7 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen overflow-y-auto bg-[#f6f8fb] text-neutral-950">
+    <main className="min-h-screen overflow-y-auto bg-background text-neutral-950">
       <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-3 py-3 sm:px-4 lg:px-6">
         <header className="mb-3 flex shrink-0 items-center justify-between rounded-2xl border border-neutral-200/80 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
           <div className="flex min-w-0 items-center gap-3">
@@ -1650,6 +1651,7 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-2">
+            <ThemeToggle compact />
             <div className="flex items-center gap-1 rounded-md border border-neutral-200 bg-neutral-50 p-1">
               <Languages size={15} className="ml-1 text-neutral-400" />
               {(["ru", "kk"] as const).map((item) => (
@@ -1659,7 +1661,7 @@ export default function Home() {
                   onClick={() => setLanguage(item)}
                   className={`h-7 rounded px-2 text-xs font-semibold transition ${
                     language === item
-                      ? "bg-blue-600 text-white shadow-sm"
+                      ? "bg-blue-600 text-on-accent shadow-sm"
                       : "text-neutral-500 hover:bg-white"
                   }`}
                 >
@@ -1982,7 +1984,7 @@ export default function Home() {
             <div
               ref={chatScrollRef}
               onScroll={updateChatScrollState}
-              className="app-scrollbar min-h-0 flex-1 overflow-y-auto bg-[linear-gradient(#ffffff,#f8fbff)] px-3 py-4 sm:px-4"
+              className="app-scrollbar chat-canvas min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4"
             >
               <div ref={topRef} />
               {!hasMessages && (
@@ -2073,7 +2075,7 @@ export default function Home() {
                       }`}
                     >
                       {!isUser && (
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-600 text-white shadow-sm">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-600 text-on-accent shadow-sm">
                           <Bot size={18} />
                         </div>
                       )}
@@ -2081,7 +2083,7 @@ export default function Home() {
                       <div
                         className={`max-w-[88%] text-sm leading-6 md:max-w-[82%] ${
                           isUser
-                            ? "rounded-2xl bg-blue-600 px-4 py-3 text-white shadow-sm shadow-blue-900/10"
+                            ? "rounded-2xl bg-blue-600 px-4 py-3 text-on-accent shadow-sm shadow-blue-900/10"
                             : "rounded-none px-1 py-1 text-neutral-900"
                         }`}
                       >
@@ -2097,7 +2099,7 @@ export default function Home() {
                                   aria-label={msg.supplierCard.managerName}
                                 />
                               ) : (
-                                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md bg-blue-600 text-sm font-semibold text-white">
+                                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md bg-blue-600 text-sm font-semibold text-on-accent">
                                   {getInitials(msg.supplierCard.managerName)}
                                 </div>
                               )}
@@ -2167,13 +2169,13 @@ export default function Home() {
                                   href={msg.supportCard.href}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="rounded-md bg-amber-900 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-950"
+                                  className="rounded-md bg-amber-600 px-3 py-2 text-xs font-semibold text-on-accent hover:bg-amber-700"
                                 >
                                   {msg.supportCard.contactLabel}:{" "}
                                   {msg.supportCard.contactValue}
                                 </a>
                               ) : (
-                                <span className="rounded-md bg-amber-900 px-3 py-2 text-xs font-semibold text-white">
+                                <span className="rounded-md bg-amber-600 px-3 py-2 text-xs font-semibold text-on-accent">
                                   {msg.supportCard.contactLabel}:{" "}
                                   {msg.supportCard.contactValue}
                                 </span>
@@ -2289,7 +2291,7 @@ export default function Home() {
 
                 {loading && (
                   <div className="soft-enter flex justify-start gap-3" aria-live="polite">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-600 text-white">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-600 text-on-accent">
                       <Bot size={18} />
                     </div>
                     <div className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 shadow-sm">
@@ -2324,7 +2326,7 @@ export default function Home() {
                   <button
                     type="button"
                     onClick={() => scrollChatToBottom()}
-                    className="flex h-9 w-9 items-center justify-center rounded-full border border-blue-100 bg-blue-600 text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-blue-700"
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-blue-100 bg-blue-600 text-on-accent shadow-lg transition hover:-translate-y-0.5 hover:bg-blue-700"
                     title="К последнему сообщению"
                     aria-label="К последнему сообщению"
                   >
@@ -2416,7 +2418,7 @@ export default function Home() {
                 <button
                   onClick={() => void sendMessage()}
                   disabled={!input.trim() || loading}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:shadow-none"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-on-accent shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:shadow-none"
                   title="Отправить"
                   aria-label="Отправить сообщение"
                 >

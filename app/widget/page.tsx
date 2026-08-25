@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BrandMark } from "@/components/BrandMark";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import type {
   ChatMessage,
   ChatResponse,
@@ -277,7 +278,7 @@ function MeterCorrectionFormCard({
       <button
         onClick={() => void submit()}
         disabled={disabled || submitted}
-        className="mt-2 h-9 w-full rounded-md bg-blue-600 px-3 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-300"
+        className="mt-2 h-9 w-full rounded-md bg-blue-600 px-3 text-xs font-semibold text-on-accent hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-300"
       >
         {submitted ? "Заявка отправлена" : "Отправить заявку"}
       </button>
@@ -384,12 +385,12 @@ function AppealRequestFormCard({
             files: Array.from(event.target.files ?? []),
           }))
         }
-        className="w-full rounded-md border border-dashed border-neutral-300 bg-white px-2 py-2 text-xs file:mr-2 file:rounded-md file:border-0 file:bg-neutral-900 file:px-2 file:py-1.5 file:text-[11px] file:font-semibold file:text-white"
+        className="w-full rounded-md border border-dashed border-neutral-300 bg-white px-2 py-2 text-xs file:mr-2 file:rounded-md file:border-0 file:bg-blue-600 file:px-2 file:py-1.5 file:text-[11px] file:font-semibold file:text-on-accent"
       />
       <button
         onClick={() => void submit()}
         disabled={disabled || submitted}
-        className="h-9 w-full rounded-md bg-emerald-700 px-3 text-xs font-semibold text-white disabled:bg-neutral-300"
+        className="h-9 w-full rounded-md bg-emerald-600 px-3 text-xs font-semibold text-on-accent disabled:bg-neutral-300"
       >
         {submitted ? "Обращение отправлено" : "Отправить обращение"}
       </button>
@@ -501,7 +502,7 @@ function AppointmentRequestFormCard({
       <button
         onClick={() => void submit()}
         disabled={disabled || submitted}
-        className="h-9 w-full rounded-md bg-violet-700 px-3 text-xs font-semibold text-white disabled:bg-neutral-300"
+        className="h-9 w-full rounded-md bg-violet-600 px-3 text-xs font-semibold text-on-accent disabled:bg-neutral-300"
       >
         {submitted ? "Заявка отправлена" : "Записаться на прием"}
       </button>
@@ -1330,6 +1331,7 @@ export default function WidgetPage() {
         </div>
 
         <div className="flex items-center gap-1">
+          <ThemeToggle compact />
           <div className="flex items-center gap-0.5 rounded-md border border-neutral-200 bg-neutral-50 p-0.5">
             <Languages size={13} className="mx-1 text-neutral-400" />
             {(["ru", "kk"] as const).map((item) => (
@@ -1339,7 +1341,7 @@ export default function WidgetPage() {
                 onClick={() => setLanguage(item)}
                 className={`h-7 rounded px-1.5 text-[11px] font-semibold ${
                   language === item
-                    ? "bg-blue-600 text-white"
+                    ? "bg-blue-600 text-on-accent"
                     : "text-neutral-500 hover:bg-white"
                 }`}
               >
@@ -1566,7 +1568,7 @@ export default function WidgetPage() {
       <section
         ref={chatScrollRef}
         onScroll={updateChatScrollState}
-        className="app-scrollbar min-h-0 flex-1 overflow-y-auto bg-[#f7f9fc] px-3 py-4"
+        className="app-scrollbar chat-canvas min-h-0 flex-1 overflow-y-auto px-3 py-4"
       >
         <div ref={topRef} />
         {messages.length === 0 && (
@@ -1627,7 +1629,7 @@ export default function WidgetPage() {
                 <div
                   className={`max-w-[86%] text-sm leading-6 ${
                     isUser
-                      ? "rounded-2xl bg-blue-600 px-3 py-2 text-white shadow-sm shadow-blue-900/10"
+                      ? "rounded-2xl bg-blue-600 px-3 py-2 text-on-accent shadow-sm shadow-blue-900/10"
                       : "px-1 py-1 text-neutral-900"
                   }`}
                 >
@@ -1643,7 +1645,7 @@ export default function WidgetPage() {
                             aria-label={message.supplierCard.managerName}
                           />
                         ) : (
-                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-blue-600 text-xs font-semibold text-white">
+                          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-blue-600 text-xs font-semibold text-on-accent">
                             {getInitials(message.supplierCard.managerName)}
                           </div>
                         )}
@@ -1713,13 +1715,13 @@ export default function WidgetPage() {
                             href={message.supportCard.href}
                             target="_blank"
                             rel="noreferrer"
-                            className="inline-flex rounded-md bg-amber-900 px-2.5 py-1.5 text-[11px] font-semibold text-white"
+                            className="inline-flex rounded-md bg-amber-600 px-2.5 py-1.5 text-[11px] font-semibold text-on-accent"
                           >
                             {message.supportCard.contactLabel}:{" "}
                             {message.supportCard.contactValue}
                           </a>
                         ) : (
-                          <div className="inline-flex rounded-md bg-amber-900 px-2.5 py-1.5 text-[11px] font-semibold text-white">
+                          <div className="inline-flex rounded-md bg-amber-600 px-2.5 py-1.5 text-[11px] font-semibold text-on-accent">
                             {message.supportCard.contactLabel}:{" "}
                             {message.supportCard.contactValue}
                           </div>
@@ -1856,7 +1858,7 @@ export default function WidgetPage() {
             <button
               type="button"
               onClick={() => scrollChatToBottom()}
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg"
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-on-accent shadow-lg"
               title="К последнему сообщению"
               aria-label="К последнему сообщению"
             >
@@ -1928,7 +1930,7 @@ export default function WidgetPage() {
           <button
             onClick={() => void sendMessage()}
             disabled={!input.trim() || loading}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:shadow-none"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-on-accent shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-300 disabled:shadow-none"
             title="Отправить"
             aria-label="Отправить"
           >

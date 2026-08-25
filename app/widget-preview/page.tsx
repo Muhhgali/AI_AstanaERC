@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { BrandMark } from "@/components/BrandMark";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 const serviceItems = [
   {
@@ -67,8 +68,8 @@ export default function WidgetPreviewPage() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-[#eef4fb] text-neutral-950">
-      <header className="sticky top-0 z-20 border-b border-white/80 bg-white/90 backdrop-blur">
+    <main className="min-h-screen bg-background text-neutral-950">
+      <header className="sticky top-0 z-20 border-b border-neutral-200/80 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4">
           <div className="flex items-center gap-3">
             <BrandMark size="md" variant="full" />
@@ -92,9 +93,12 @@ export default function WidgetPreviewPage() {
             </a>
           </nav>
 
-          <button className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700">
-            Личный кабинет
-          </button>
+          <div className="flex items-center gap-3">
+            <ThemeToggle />
+            <button className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-on-accent shadow-sm transition hover:bg-blue-700">
+              Личный кабинет
+            </button>
+          </div>
         </div>
       </header>
 
@@ -116,7 +120,7 @@ export default function WidgetPreviewPage() {
           <div className="mt-7 flex flex-wrap gap-3">
             <button
               onClick={() => setWidgetOpen(true)}
-              className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
+              className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-3 text-sm font-semibold text-on-accent shadow-sm transition hover:bg-blue-700"
             >
               Открыть помощника
               <ArrowRight size={16} />
@@ -130,7 +134,7 @@ export default function WidgetPreviewPage() {
           </div>
         </div>
 
-        <div className="rounded-lg border border-white/80 bg-white/90 p-5 shadow-xl shadow-blue-950/10">
+        <div className="rounded-lg border border-neutral-200/80 bg-white/90 p-5 shadow-xl shadow-blue-950/10">
           <div className="flex items-center justify-between border-b border-neutral-100 pb-4">
             <div>
               <div className="text-sm font-semibold">Сводка по лицевому счету</div>
@@ -143,19 +147,19 @@ export default function WidgetPreviewPage() {
             </span>
           </div>
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            <div className="rounded-lg bg-[#f6f9fc] p-4">
+            <div className="rounded-lg bg-neutral-50 p-4">
               <div className="text-xs text-neutral-500">К оплате</div>
               <div className="mt-2 text-2xl font-semibold">18 420 ₸</div>
             </div>
-            <div className="rounded-lg bg-[#f6f9fc] p-4">
+            <div className="rounded-lg bg-neutral-50 p-4">
               <div className="text-xs text-neutral-500">Последний платеж</div>
               <div className="mt-2 text-2xl font-semibold">25.06</div>
             </div>
-            <div className="rounded-lg bg-[#f6f9fc] p-4">
+            <div className="rounded-lg bg-neutral-50 p-4">
               <div className="text-xs text-neutral-500">Квитанция</div>
               <div className="mt-2 text-sm font-semibold">Июнь 2026</div>
             </div>
-            <div className="rounded-lg bg-[#f6f9fc] p-4">
+            <div className="rounded-lg bg-neutral-50 p-4">
               <div className="text-xs text-neutral-500">Поддержка</div>
               <div className="mt-2 text-sm font-semibold">109</div>
             </div>
@@ -186,7 +190,7 @@ export default function WidgetPreviewPage() {
             return (
               <article
                 key={item.title}
-                className="rounded-lg border border-white/80 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                className="rounded-lg border border-neutral-200/80 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
               >
                 <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-md bg-blue-50 text-blue-700">
                   <Icon size={19} />
@@ -202,7 +206,7 @@ export default function WidgetPreviewPage() {
       </section>
 
       <section className="mx-auto grid max-w-7xl gap-4 px-5 pb-16 lg:grid-cols-[0.7fr_1.3fr]">
-        <div className="rounded-lg border border-white/80 bg-white p-5 shadow-sm">
+        <div className="rounded-lg border border-neutral-200/80 bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center gap-2 font-semibold">
             <MapPin className="text-blue-700" size={18} />
             Контакты
@@ -214,14 +218,14 @@ export default function WidgetPreviewPage() {
           </div>
         </div>
 
-        <div className="rounded-lg border border-white/80 bg-white p-5 shadow-sm">
+        <div className="rounded-lg border border-neutral-200/80 bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center gap-2 font-semibold">
             <Bell className="text-blue-700" size={18} />
             Объявления
           </div>
           <div className="grid gap-3 md:grid-cols-3">
             {newsItems.map((item) => (
-              <div key={item} className="rounded-md bg-[#f6f9fc] p-3 text-sm leading-6 text-neutral-600">
+              <div key={item} className="rounded-md bg-neutral-50 p-3 text-sm leading-6 text-neutral-600">
                 <CheckCircle2 className="mb-2 text-emerald-600" size={16} />
                 {item}
               </div>
@@ -230,7 +234,7 @@ export default function WidgetPreviewPage() {
         </div>
       </section>
 
-      <footer className="border-t border-white/80 bg-white/70 px-5 py-6">
+      <footer className="border-t border-neutral-200/80 bg-white/70 px-5 py-6">
         <div className="mx-auto flex max-w-7xl flex-col gap-2 text-sm text-neutral-500 md:flex-row md:items-center md:justify-between">
           <span>Демо-предпросмотр размещения AI-помощника</span>
           <span>Астана-ЕРЦ · MVP</span>
@@ -239,7 +243,7 @@ export default function WidgetPreviewPage() {
 
       <button
         onClick={() => setWidgetOpen((value) => !value)}
-        className="fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-2xl shadow-blue-900/30 transition hover:-translate-y-0.5 hover:bg-blue-700"
+        className="fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-on-accent shadow-2xl shadow-blue-900/30 transition hover:-translate-y-0.5 hover:bg-blue-700"
         aria-label={widgetOpen ? "Закрыть помощника" : "Открыть помощника"}
         title={widgetOpen ? "Закрыть помощника" : "Открыть помощника"}
       >
@@ -250,8 +254,8 @@ export default function WidgetPreviewPage() {
         <div
           className={
             widgetFullscreen
-              ? "fixed inset-4 z-50 overflow-hidden rounded-lg border border-white/80 bg-white shadow-2xl shadow-blue-950/25"
-              : "fixed bottom-24 right-5 z-40 h-[640px] max-h-[calc(100vh-120px)] w-[390px] max-w-[calc(100vw-40px)] overflow-hidden rounded-lg border border-white/80 bg-white shadow-2xl shadow-blue-950/25"
+              ? "fixed inset-4 z-50 overflow-hidden rounded-lg border border-neutral-200/80 bg-white shadow-2xl shadow-blue-950/25"
+              : "fixed bottom-24 right-5 z-40 h-[640px] max-h-[calc(100vh-120px)] w-[390px] max-w-[calc(100vw-40px)] overflow-hidden rounded-lg border border-neutral-200/80 bg-white shadow-2xl shadow-blue-950/25"
           }
         >
           <iframe

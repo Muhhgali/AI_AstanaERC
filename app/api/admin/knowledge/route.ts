@@ -204,16 +204,16 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const rateLimited = enforceRateLimit(req, RATE_LIMIT_POLICIES.adminAiMutation);
-
-  if (rateLimited) {
-    return rateLimited;
-  }
-
   const authorization = await requireAdmin(req);
 
   if (!authorization.ok) {
     return authorization.response;
+  }
+
+  const rateLimited = enforceRateLimit(req, RATE_LIMIT_POLICIES.adminAiMutation);
+
+  if (rateLimited) {
+    return rateLimited;
   }
 
   try {
@@ -260,16 +260,16 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const rateLimited = enforceRateLimit(req, RATE_LIMIT_POLICIES.adminAiMutation);
-
-  if (rateLimited) {
-    return rateLimited;
-  }
-
   const authorization = await requireAdmin(req);
 
   if (!authorization.ok) {
     return authorization.response;
+  }
+
+  const rateLimited = enforceRateLimit(req, RATE_LIMIT_POLICIES.adminAiMutation);
+
+  if (rateLimited) {
+    return rateLimited;
   }
 
   try {

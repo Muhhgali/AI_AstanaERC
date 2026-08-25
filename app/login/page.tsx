@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowLeft, LockKeyhole, ShieldAlert } from "lucide-react";
 import { BrandMark } from "@/components/BrandMark";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
 
 export default function LoginPage() {
@@ -93,7 +94,10 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#f4f6f8] px-4 text-neutral-950">
+    <div className="relative flex min-h-screen items-center justify-center bg-background px-4 text-neutral-950">
+      <div className="absolute right-4 top-4">
+        <ThemeToggle />
+      </div>
       <div className="w-full max-w-md rounded-lg border border-neutral-200 bg-white p-8 shadow-sm">
         <div className="mb-7 flex flex-col items-center text-center">
           <BrandMark size="lg" variant="full" />
@@ -139,7 +143,7 @@ export default function LoginPage() {
         <button
           onClick={login}
           disabled={loading}
-          className="mb-2 flex h-11 w-full items-center justify-center gap-2 rounded-md bg-blue-600 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+          className="mb-2 flex h-11 w-full items-center justify-center gap-2 rounded-md bg-blue-600 text-sm font-semibold text-on-accent transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
         >
           <LockKeyhole size={16} />
           {loading ? "Проверяю..." : "Войти в админку"}

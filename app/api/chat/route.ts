@@ -43,6 +43,13 @@ import {
   isDocumentFollowUpQuestion,
 } from "@/lib/documents/conversation";
 import { loadOwnedResidentDocuments } from "@/lib/documents/repository";
+import {
+  buildKnowledgeGapPriority,
+  inferKnowledgeGapCategory,
+  normalizeKnowledgeGapQuestion,
+  sanitizeKnowledgeGapQuestion,
+  type KnowledgeGapReason,
+} from "@/lib/knowledgeGaps";
 
 let openai: OpenAI | null = null;
 let adminSupabase: ReturnType<typeof createClient<any>> | null = null;
@@ -78,14 +85,6 @@ type ChatBodyMessage = {
   role?: "user" | "assistant";
   content?: string;
 };
-
-type KnowledgeGapReason =
-  | "no-match"
-  | "weak-match"
-  | "unverified-match"
-  | "gpt-answer"
-  | "private-account-lookup"
-  | "out-of-domain";
 
 type SupportCard = {
   title: string;
@@ -278,6 +277,25 @@ function isMissingVisitorIdColumn(error: unknown) {
   return (
     maybeError.code === "42703" ||
     Boolean(maybeError.message?.includes("visitor_id"))
+  );
+}
+
+function isMissingManagerWorkspaceColumn(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const maybeError = error as { code?: string; message?: string };
+  const message = maybeError.message ?? "";
+
+  return (
+    maybeError.code === "42703" ||
+    message.includes("sanitized_user_question") ||
+    message.includes("assignment_status") ||
+    message.includes("frequency") ||
+    message.includes("last_seen_at") ||
+    message.includes("priority") ||
+    message.includes("updated_at")
   );
 }
 
@@ -1053,14 +1071,52 @@ function buildPaymentGuidanceAnswer(language: ChatLanguage) {
     return [
       "ЕПД-ны онлайн-банкинг, банк қосымшалары, төлем терминалдары немесе банк кассалары арқылы төлеуге болады.",
       "Төлем кезінде түбіртектегі дербес шотты және соманы дұрыс көрсетіңіз.",
-      "Төлемді келесі ЕПД-ға уақытында түсіру үшін 25-іне дейін жасаған дұрыс.",
+      "Егер төлемнің ЕПД-да қашан көрінетіні керек болса, ол бойынша бөлек verified ереже қажет.",
     ].join("\n");
   }
 
   return [
     "ЕПД можно оплатить через онлайн-банкинг, мобильные приложения банков, платежные терминалы или банковские кассы.",
     "При оплате проверьте лицевой счет и сумму из квитанции.",
-    "Лучше оплачивать до 25 числа, чтобы платеж успел отразиться в следующем ЕПД.",
+    "Если нужно понять, когда платёж отразится в ЕПД, для этого нужно отдельное verified-правило; я не буду придумывать срок.",
+  ].join("\n");
+}
+
+function isLatePaymentReflectionQuestion(question: string) {
+  const normalized = question.toLowerCase().replace(/ё/g, "е");
+  const hasPayment =
+    normalized.includes("оплат") ||
+    normalized.includes("платеж") ||
+    normalized.includes("платёж");
+  const hasTiming =
+    normalized.includes("после 25") ||
+    normalized.includes("поздно") ||
+    normalized.includes("поздняя") ||
+    normalized.includes("не отраз") ||
+    normalized.includes("не учли") ||
+    normalized.includes("не зач");
+  const hasReceiptOrDebt =
+    normalized.includes("квитанц") ||
+    normalized.includes("епд") ||
+    normalized.includes("долг") ||
+    normalized.includes("задолж");
+
+  return hasPayment && hasTiming && hasReceiptOrDebt;
+}
+
+function buildLatePaymentReflectionAnswer(language: ChatLanguage) {
+  if (language === "kk") {
+    return [
+      "Verified базада төлемнің 25-інен кейін ЕПД-да қашан көрінетіні туралы нақты ереже жоқ.",
+      "Сондықтан мен төлем міндетті түрде келесі кезеңде есептеледі деп айта алмаймын.",
+      "Тексеру үшін ЕПД мен банк чегін жүктеңіз немесе төлем күні, сома және дербес шот бойынша қолдау қызметіне нақтылау керек.",
+    ].join("\n");
+  }
+
+  return [
+    "В verified-базе нет точного правила, когда платёж после 25 числа должен отразиться в ЕПД.",
+    "Поэтому я не буду утверждать, что он автоматически попадёт в следующий период.",
+    "Для проверки нужны ЕПД и банковский чек либо сверка по дате платежа, сумме и лицевому счёту в поддержке.",
   ].join("\n");
 }
 
@@ -1659,20 +1715,98 @@ async function saveKnowledgeGap(params: {
   topSimilarity?: number;
 }) {
   try {
+    const sanitizedQuestion = sanitizeKnowledgeGapQuestion(params.userQuestion);
+    const normalizedQuestion = normalizeKnowledgeGapQuestion(params.userQuestion);
+    const category = inferKnowledgeGapCategory(params.userQuestion);
+    const now = new Date().toISOString();
+    const existing = await getAdminSupabase()
+      .from("knowledge_gaps")
+      .select("id,frequency,top_similarity,priority")
+      .eq("status", "open")
+      .eq("sanitized_user_question", normalizedQuestion)
+      .maybeSingle();
+
+    if (existing.error && !isMissingManagerWorkspaceColumn(existing.error)) {
+      console.warn("KNOWLEDGE GAP DEDUPE SKIPPED:", existing.error);
+    }
+
+    if (existing.data?.id) {
+      const currentFrequency =
+        typeof existing.data.frequency === "number" ? existing.data.frequency : 1;
+      const nextFrequency = currentFrequency + 1;
+      const nextSimilarity =
+        typeof params.topSimilarity === "number"
+          ? params.topSimilarity
+          : existing.data.top_similarity;
+      const update = await getAdminSupabase()
+        .from("knowledge_gaps")
+        .update({
+          conversation_id: params.conversationId,
+          assistant_message_id: params.assistantMessageId,
+          user_question: sanitizedQuestion,
+          assistant_answer: params.assistantAnswer,
+          reason: params.reason,
+          frequency: nextFrequency,
+          priority: buildKnowledgeGapPriority({
+            reason: params.reason,
+            frequency: nextFrequency,
+            topSimilarity: nextSimilarity,
+          }),
+          top_similarity: nextSimilarity ?? null,
+          last_seen_at: now,
+          updated_at: now,
+        })
+        .eq("id", existing.data.id);
+
+      if (update.error) {
+        console.warn("KNOWLEDGE GAP DEDUPE UPDATE SKIPPED:", update.error);
+      }
+
+      return;
+    }
+
     const { error } = await getAdminSupabase()
       .from("knowledge_gaps")
       .insert({
         conversation_id: params.conversationId,
         assistant_message_id: params.assistantMessageId,
         topic: inferGapTopic(params.userQuestion),
-        user_question: params.userQuestion,
+        user_question: sanitizedQuestion,
+        sanitized_user_question: normalizedQuestion,
         assistant_answer: params.assistantAnswer,
         reason: params.reason,
+        assignment_status: "unassigned",
+        category,
+        frequency: 1,
+        priority: buildKnowledgeGapPriority({
+          reason: params.reason,
+          frequency: 1,
+          topSimilarity: params.topSimilarity,
+        }),
         top_similarity: params.topSimilarity ?? null,
+        last_seen_at: now,
       });
 
     if (error) {
-      console.warn("KNOWLEDGE GAP SAVE SKIPPED:", error);
+      if (isMissingManagerWorkspaceColumn(error)) {
+        const fallback = await getAdminSupabase()
+          .from("knowledge_gaps")
+          .insert({
+            conversation_id: params.conversationId,
+            assistant_message_id: params.assistantMessageId,
+            topic: inferGapTopic(params.userQuestion),
+            user_question: sanitizedQuestion,
+            assistant_answer: params.assistantAnswer,
+            reason: params.reason,
+            top_similarity: params.topSimilarity ?? null,
+          });
+
+        if (fallback.error) {
+          console.warn("KNOWLEDGE GAP SAVE SKIPPED:", fallback.error);
+        }
+      } else {
+        console.warn("KNOWLEDGE GAP SAVE SKIPPED:", error);
+      }
     }
   } catch (error) {
     console.warn("KNOWLEDGE GAP SAVE SKIPPED:", error);
@@ -2358,6 +2492,37 @@ export async function POST(req: Request) {
       });
     }
 
+    if (isLatePaymentReflectionQuestion(lastMessage)) {
+      const assistantMessage = buildLatePaymentReflectionAnswer(responseLanguage);
+      const saved = await saveTurn({
+        conversationId,
+        visitorId,
+        userMessage: lastMessage,
+        assistantMessage,
+        source: "verified-gap",
+      });
+
+      await saveKnowledgeGap({
+        conversationId: saved.conversationId,
+        assistantMessageId: saved.messageId,
+        userQuestion: lastMessage,
+        assistantAnswer: assistantMessage,
+        reason: "gpt-answer",
+      });
+
+      return jsonResponse({
+        message: assistantMessage,
+        source: "verified-gap",
+        conversationId: saved.conversationId,
+        messageId: saved.messageId,
+        suggestedQuestions: buildSuggestedQuestions({
+          question: lastMessage,
+          source: "uncertain",
+          language: responseLanguage,
+        }),
+      });
+    }
+
     if (isPaymentGuidanceIntent(lastMessage)) {
       const assistantMessage = buildPaymentGuidanceAnswer(responseLanguage);
       const saved = await saveTurn({
@@ -2440,7 +2605,7 @@ export async function POST(req: Request) {
           assistantMessageId: saved.messageId,
           userQuestion: lastMessage,
           assistantAnswer: assistantMessage,
-          reason: "private-account-lookup",
+        reason: "no-match",
           topSimilarity: topCandidate?.scoreBreakdown.semantic,
         });
 
@@ -2479,11 +2644,7 @@ export async function POST(req: Request) {
           assistantMessageId: saved.messageId,
           userQuestion: lastMessage,
           assistantAnswer: assistantMessage,
-          reason: retrieval.query.isOutOfDomain
-            ? "out-of-domain"
-            : topCandidate
-              ? "weak-match"
-              : "no-match",
+          reason: topCandidate ? "weak-match" : "no-match",
           topSimilarity: topCandidate?.scoreBreakdown.semantic,
         });
 

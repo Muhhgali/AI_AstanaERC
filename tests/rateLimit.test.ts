@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   enforceRateLimit,
   InMemoryRateLimitStore,
+  RATE_LIMIT_POLICIES,
+  shouldBypassRateLimit,
   type RateLimitPolicy,
 } from "../lib/rateLimit";
 
@@ -21,7 +23,7 @@ function request(path = "/api/chat") {
 }
 
 describe("rate limiting", () => {
-  it("allows requests up to the limit and then returns 429", () => {
+  it("allows requests up to the limit and then returns 429", async () => {
     const store = new InMemoryRateLimitStore();
 
     expect(enforceRateLimit(request(), policy, store, 0)).toBeNull();
@@ -30,6 +32,10 @@ describe("rate limiting", () => {
     const response = enforceRateLimit(request(), policy, store, 200);
     expect(response?.status).toBe(429);
     expect(response?.headers.get("Retry-After")).toBe("1");
+    await expect(response?.json()).resolves.toMatchObject({
+      message: "Too many requests. Please try again later.",
+      retryAfterSeconds: 1,
+    });
   });
 
   it("keeps endpoint counters separate", () => {
@@ -49,5 +55,24 @@ describe("rate limiting", () => {
     enforceRateLimit(request(), policy, store, 10);
     expect(enforceRateLimit(request(), policy, store, 20)?.status).toBe(429);
     expect(enforceRateLimit(request(), policy, store, 1_001)).toBeNull();
+  });
+
+  it("gives staff knowledge review a burst-friendly write budget", () => {
+    expect(RATE_LIMIT_POLICIES.adminAiMutation.limit).toBeGreaterThanOrEqual(180);
+  });
+
+  it("skips admin write limits during local development", () => {
+    vi.stubEnv("NODE_ENV", "development");
+
+    expect(shouldBypassRateLimit(RATE_LIMIT_POLICIES.adminAiMutation)).toBe(true);
+    expect(shouldBypassRateLimit(RATE_LIMIT_POLICIES.chat)).toBe(false);
+    expect(
+      enforceRateLimit(
+        request("/api/admin/knowledge"),
+        RATE_LIMIT_POLICIES.adminAiMutation
+      )
+    ).toBeNull();
+
+    vi.unstubAllEnvs();
   });
 });

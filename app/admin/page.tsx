@@ -1,23 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  AlertTriangle,
   Archive,
-  Building2,
   CheckCircle2,
   Clock3,
-  ClipboardList,
-  DatabaseZap,
   FileCheck2,
-  ListChecks,
   Search,
-  ShieldCheck,
-  Sparkles,
   UsersRound,
 } from "lucide-react";
-import { BrandMark } from "@/components/BrandMark";
+import { AdminErrorBanner } from "@/components/admin/AdminErrorBanner";
+import { AdminTopNav } from "@/components/admin/AdminTopNav";
+import { CommandCenter } from "@/components/admin/CommandCenter";
+import { KnowledgeWorkspace } from "@/components/admin/KnowledgeWorkspace";
+import { ModuleFrame, ModuleTabs } from "@/components/admin/ModuleFrame";
+import type { AdminNotification, AdminPrimaryNav } from "@/components/admin/types";
 import { supabase } from "@/lib/supabaseClient";
 import type { RequestCategory, RequestStatusFilter, HistoryFilter } from "@/lib/types";
 
@@ -34,6 +32,8 @@ type KnowledgeItem = {
   source: string | null;
   reviewed_at?: string | null;
   archived_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
   content_hash?: string | null;
   metadata?: Record<string, unknown> | null;
 };
@@ -60,6 +60,22 @@ type AiTestCase = {
   expectedBehavior?: string;
   tags?: string[];
   labelQuality?: string;
+  sourceKnowledgeId?: string;
+  sourceKnowledgeTitle?: string;
+  generationMode?: AiTestGenerationMode;
+  difficulty?: AiTestDifficulty;
+};
+
+type AiTestDifficulty = "basic" | "medium" | "hard";
+type AiTestGenerationMode = "normal" | "paraphrase" | "typo" | "conflict";
+
+type AiTestExecutionResult = {
+  id: string;
+  status: "pass" | "fail" | "needs_review";
+  source: string | null;
+  answer: string;
+  reasons: string[];
+  durationMs?: number;
 };
 
 type LearningSession = {
@@ -339,18 +355,6 @@ const EMPTY_FORM: KnowledgeForm = {
   source: "admin",
 };
 
-const KNOWLEDGE_STATUSES: {
-  id: KnowledgeStatus | "all";
-  label: string;
-  hint: string;
-}[] = [
-  { id: "all", label: "Все", hint: "включая архив" },
-  { id: "draft", label: "Черновик", hint: "готовится владельцем" },
-  { id: "review", label: "На проверке", hint: "ждет человека" },
-  { id: "verified", label: "Опубликовано", hint: "может отвечать бот" },
-  { id: "archived", label: "Архив", hint: "не попадает в RAG" },
-];
-
 const TEMPLATES = [
   {
     label: "Способ оплаты",
@@ -436,6 +440,22 @@ function formatDay(value: string) {
     month: "2-digit",
     year: "numeric",
   }).format(new Date(`${value}T12:00:00`));
+}
+
+function isRateLimitError(message: string) {
+  return /too many requests/i.test(message);
+}
+
+function adminErrorTitle(message: string) {
+  if (message.includes("роль admin") || message.includes("ADMIN_ROLE_REQUIRED")) {
+    return "Нужна роль администратора";
+  }
+
+  if (isRateLimitError(message)) {
+    return "Слишком много запросов";
+  }
+
+  return "Ошибка загрузки админки";
 }
 
 function statusLabel(status: string) {
@@ -540,6 +560,16 @@ function getWorkspaceRolesFromMetadata(appMetadata: Record<string, unknown>) {
   );
 }
 
+const AI_TEST_GENERATION_MODE_OPTIONS: {
+  id: AiTestGenerationMode;
+  label: string;
+}[] = [
+  { id: "normal", label: "Обычные" },
+  { id: "paraphrase", label: "Перефразированные" },
+  { id: "typo", label: "С ошибками" },
+  { id: "conflict", label: "Сложные/конфликтные" },
+];
+
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<
     | "dashboard"
@@ -551,6 +581,7 @@ export default function AdminPage() {
     | "ai-tests"
     | "learning"
     | "manager-workspace"
+    | "analytics"
   >("dashboard");
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [items, setItems] = useState<KnowledgeItem[]>([]);
@@ -583,6 +614,15 @@ export default function AdminPage() {
   const [aiTests, setAiTests] = useState<AiTestCase[]>([]);
   const [aiTestQuery, setAiTestQuery] = useState("");
   const [aiTestCategory, setAiTestCategory] = useState("all");
+  const [aiTestCount, setAiTestCount] = useState(10);
+  const [aiTestDifficulty, setAiTestDifficulty] =
+    useState<AiTestDifficulty>("medium");
+  const [aiTestGenerationModes, setAiTestGenerationModes] = useState<
+    AiTestGenerationMode[]
+  >(["normal", "paraphrase", "typo", "conflict"]);
+  const [aiTestResults, setAiTestResults] = useState<
+    Record<string, AiTestExecutionResult>
+  >({});
   const [aiTestsLoading, setAiTestsLoading] = useState(false);
   const [aiTestMessage, setAiTestMessage] = useState("");
   const [learningSession, setLearningSession] =
@@ -637,7 +677,20 @@ export default function AdminPage() {
   const [managerSaving, setManagerSaving] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [inspectorMode, setInspectorMode] = useState<"view" | "edit" | "create">(
+    "view"
+  );
+  const [selectedKnowledgeId, setSelectedKnowledgeId] = useState<string | null>(
+    null
+  );
+  const [knowledgeSort, setKnowledgeSort] = useState<
+    "updated" | "title" | "status" | "category"
+  >("updated");
+  const [globalSearch, setGlobalSearch] = useState("");
+  const [currentUserEmail, setCurrentUserEmail] = useState("Администратор");
 
+  const didBootstrap = useRef(false);
   const router = useRouter();
   const isAdminUser = currentUserRoles.some((role) =>
     ["admin", "manager", "knowledge_editor", "reviewer"].includes(role)
@@ -676,6 +729,7 @@ export default function AdminPage() {
 
       const data = (await res.json().catch(() => ({}))) as {
         message?: string;
+        retryAfterSeconds?: number;
       } & T;
 
       if (!res.ok) {
@@ -684,6 +738,17 @@ export default function AdminPage() {
           router.push("/login?reason=session");
           throw new Error(
             "Сессия не прошла проверку. Войди заново или проверь Supabase env-переменные на Vercel."
+          );
+        }
+
+        if (res.status === 429) {
+          const retryAfter =
+            data.retryAfterSeconds ??
+            Number(res.headers.get("Retry-After") ?? 0);
+          throw new Error(
+            retryAfter > 0
+              ? `Too many requests. Please try again later. Подождите ${retryAfter} сек. — это лимит сохранений, не ошибка базы.`
+              : "Too many requests. Please try again later. Это лимит сохранений, не ошибка базы."
           );
         }
 
@@ -830,6 +895,7 @@ export default function AdminPage() {
       }>(`/api/admin/ai-tests?${params.toString()}`);
 
       setAiTests(data.items);
+      setAiTestResults({});
       setAiTestMessage(`${data.costPolicy} OpenAI calls: ${data.openAiCalls}`);
     } catch (err) {
       const message =
@@ -841,6 +907,85 @@ export default function AdminPage() {
       setAiTestsLoading(false);
     }
   }, [aiTestCategory, aiTestQuery, apiRequest]);
+
+  const generateAiTests = useCallback(async () => {
+    setAiTestsLoading(true);
+    setError("");
+
+    try {
+      const data = await apiRequest<{
+        cases: AiTestCase[];
+        totalKnowledge: number;
+        openAiCalls: number;
+        message: string;
+      }>("/api/admin/ai-tests", {
+        method: "POST",
+        body: JSON.stringify({
+          mode: "generate",
+          category: aiTestCategory === "all" ? undefined : aiTestCategory,
+          count: aiTestCount,
+          difficulty: aiTestDifficulty,
+          generationModes: aiTestGenerationModes,
+        }),
+      });
+
+      setAiTests(data.cases);
+      setAiTestResults({});
+      setAiTestMessage(
+        `${data.message} Verified knowledge used: ${data.totalKnowledge}. OpenAI calls: ${data.openAiCalls}.`
+      );
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Не удалось сгенерировать тесты из verified-базы";
+      setError(message);
+    } finally {
+      setAiTestsLoading(false);
+    }
+  }, [
+    aiTestCategory,
+    aiTestCount,
+    aiTestDifficulty,
+    aiTestGenerationModes,
+    apiRequest,
+  ]);
+
+  const runAiTests = useCallback(async () => {
+    setAiTestsLoading(true);
+    setError("");
+
+    try {
+      const data = await apiRequest<{
+        results: AiTestExecutionResult[];
+        summary: { pass: number; fail: number; needs_review: number };
+        openAiCalls: number;
+        message: string;
+      }>("/api/admin/ai-tests", {
+        method: "POST",
+        body: JSON.stringify({
+          mode: "run",
+          confirmRun: true,
+          cases: aiTests.slice(0, 5),
+        }),
+      });
+
+      setAiTestResults(
+        Object.fromEntries(data.results.map((result) => [result.id, result]))
+      );
+      setAiTestMessage(
+        `${data.message} PASS: ${data.summary.pass}, NEEDS_REVIEW: ${data.summary.needs_review}, FAIL: ${data.summary.fail}. Chat calls: ${data.openAiCalls}.`
+      );
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Не удалось запустить проверку AI Test Center";
+      setError(message);
+    } finally {
+      setAiTestsLoading(false);
+    }
+  }, [aiTests, apiRequest]);
 
   const loadLearningQuestion = useCallback(async () => {
     setLearningLoading(true);
@@ -1041,6 +1186,12 @@ export default function AdminPage() {
   };
 
   useEffect(() => {
+    if (didBootstrap.current) {
+      return;
+    }
+
+    didBootstrap.current = true;
+
     const checkUser = async () => {
       const {
         data: { user },
@@ -1057,6 +1208,8 @@ export default function AdminPage() {
         router.push("/login");
         return;
       }
+
+      setCurrentUserEmail(user.email ?? "Администратор");
 
       const roles = getWorkspaceRolesFromMetadata(
         user.app_metadata as Record<string, unknown>
@@ -1203,72 +1356,14 @@ export default function AdminPage() {
 
   const totalRequests =
     meterCorrections.length + appealRequests.length + leadershipAppointments.length;
-  const openRequestTotal = requestCategories.reduce(
-    (sum, category) => sum + category.pending + category.active,
-    0
-  );
   const supplierCoverage = formatPercent(
     suppliers.length ? (assignedSuppliersCount / suppliers.length) * 100 : 0
-  );
-  const knowledgeCoverage = formatPercent(
-    items.length ? (verifiedCount / items.length) * 100 : 0
   );
   const positiveFeedbackRate = formatPercent(
     feedbackStats.up + feedbackStats.down
       ? (feedbackStats.up / (feedbackStats.up + feedbackStats.down)) * 100
       : 100
   );
-  const mvpReadiness = formatPercent(
-    knowledgeCoverage * 0.3 +
-      supplierCoverage * 0.25 +
-      (knowledgeGaps.length === 0
-        ? 20
-        : Math.max(0, 20 - knowledgeGaps.length * 2)) +
-      (openRequestTotal === 0
-        ? 15
-        : Math.max(0, 15 - openRequestTotal * 1.5)) +
-      Math.min(10, positiveFeedbackRate / 10)
-  );
-  const priorityActions = [
-    {
-      label: "Новые заявки",
-      value: requestCategories.reduce((sum, category) => sum + category.pending, 0),
-      hint: "принять в работу",
-      action: () => {
-        setActiveTab("requests");
-        setActiveRequestStatus("new");
-        void loadRequests();
-      },
-      tone: "blue",
-    },
-    {
-      label: "Пробелы базы",
-      value: knowledgeGaps.filter((gap) => gap.status === "open").length,
-      hint: "закрыть проверенными ответами",
-      action: () => {
-        setActiveTab("history");
-        void loadHistory();
-      },
-      tone: "amber",
-    },
-    {
-      label: "Без менеджера",
-      value: Math.max(0, suppliers.length - assignedSuppliersCount),
-      hint: "доназначить поставщиков",
-      action: () => {
-        setActiveTab("suppliers");
-        setActiveSupplierManager("all");
-        void loadSuppliers();
-      },
-      tone: "neutral",
-    },
-  ];
-  const readinessPill =
-    mvpReadiness >= 85
-      ? "Готово к показу"
-      : mvpReadiness >= 70
-        ? "Нужно добить мелочи"
-        : "Есть риски перед показом";
 
   const filteredMeterCorrections = useMemo(
     () =>
@@ -1320,7 +1415,7 @@ export default function AdminPage() {
   const filteredItems = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
-    return items.filter((item) => {
+    const next = items.filter((item) => {
       const category = getCategory(item.category);
       const matchesCategory =
         activeCategory === "all" || category.id === activeCategory;
@@ -1347,10 +1442,32 @@ export default function AdminPage() {
 
       return matchesCategory && matchesStatus && matchesLanguage && matchesQuery;
     });
+
+    return next.slice().sort((left, right) => {
+      if (knowledgeSort === "title") {
+        return left.title.localeCompare(right.title, "ru");
+      }
+
+      if (knowledgeSort === "status") {
+        return getKnowledgeStatus(left).localeCompare(getKnowledgeStatus(right));
+      }
+
+      if (knowledgeSort === "category") {
+        return getCategoryLabel(left.category).localeCompare(
+          getCategoryLabel(right.category),
+          "ru"
+        );
+      }
+
+      const leftTime = left.updated_at || left.reviewed_at || left.created_at || "";
+      const rightTime = right.updated_at || right.reviewed_at || right.created_at || "";
+      return rightTime.localeCompare(leftTime);
+    });
   }, [
     activeCategory,
     items,
     knowledgeLanguageFilter,
+    knowledgeSort,
     knowledgeStatusFilter,
     query,
   ]);
@@ -1517,6 +1634,9 @@ export default function AdminPage() {
       source: item.source ?? "admin",
     });
     setActiveTab("knowledge");
+    setSelectedKnowledgeId(item.id);
+    setInspectorMode("edit");
+    setInspectorOpen(true);
     setActiveGapId(null);
     setError("");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1535,13 +1655,20 @@ export default function AdminPage() {
       const method = form.id ? "PATCH" : "POST";
       const gapToResolve = activeGapId;
 
-      await apiRequest("/api/admin/knowledge", {
+      const data = await apiRequest<{ item?: KnowledgeItem }>("/api/admin/knowledge", {
         method,
         body: JSON.stringify(form),
       });
 
+      const savedId = data.item?.id ?? form.id ?? null;
       resetForm();
       await loadKnowledge();
+
+      if (savedId) {
+        setSelectedKnowledgeId(savedId);
+        setInspectorMode("view");
+        setInspectorOpen(true);
+      }
 
       if (gapToResolve) {
         await apiRequest("/api/admin/history", {
@@ -1587,10 +1714,45 @@ export default function AdminPage() {
             : x
         )
       );
+      setInspectorOpen(false);
+      setSelectedKnowledgeId(null);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Не удалось удалить";
       setError(message);
+    }
+  };
+
+  const applyKnowledgeStatus = async (
+    item: KnowledgeItem,
+    status: KnowledgeStatus
+  ) => {
+    setSaving(true);
+    setError("");
+
+    try {
+      await apiRequest("/api/admin/knowledge", {
+        method: "PATCH",
+        body: JSON.stringify({
+          id: item.id,
+          title: item.title,
+          category: getCategoryId(item.category),
+          content: item.content,
+          language: item.language ?? "ru",
+          status,
+          priority: item.priority ?? 0,
+          verified: status === "verified",
+          source: item.source ?? "admin",
+        }),
+      });
+      await loadKnowledge();
+      setInspectorMode("view");
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Не удалось обновить статус";
+      setError(message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -2057,210 +2219,515 @@ export default function AdminPage() {
     router.push("/login");
   };
 
+  const knowledgeStatusCounts = {
+    draft: items.filter((item) => getKnowledgeStatus(item) === "draft").length,
+    review: items.filter((item) => getKnowledgeStatus(item) === "review").length,
+    verified: items.filter((item) => getKnowledgeStatus(item) === "verified")
+      .length,
+    archived: items.filter((item) => getKnowledgeStatus(item) === "archived")
+      .length,
+  };
+
+  const primaryNav: AdminPrimaryNav = !isAdminUser
+    ? "settings"
+    : activeTab === "knowledge"
+      ? "knowledge"
+      : activeTab === "history"
+        ? "dialogs"
+        : activeTab === "review"
+          ? "review"
+          : activeTab === "ai-tests" ||
+              activeTab === "learning" ||
+              activeTab === "analytics"
+            ? "analytics"
+            : activeTab === "suppliers" ||
+                activeTab === "requests" ||
+                activeTab === "manager-workspace"
+              ? "settings"
+              : "command";
+
+  const navigatePrimary = (id: AdminPrimaryNav) => {
+    if (id === "command") {
+      setActiveTab("dashboard");
+      void loadDashboard();
+      return;
+    }
+
+    if (id === "knowledge") {
+      setActiveTab("knowledge");
+      return;
+    }
+
+    if (id === "dialogs") {
+      setActiveTab("history");
+      void loadHistory();
+      return;
+    }
+
+    if (id === "review") {
+      setActiveTab("review");
+      return;
+    }
+
+    if (id === "analytics") {
+      setActiveTab("analytics");
+      void loadDashboard();
+      void loadAiTests();
+      return;
+    }
+
+    if (!isAdminUser) {
+      setActiveTab("manager-workspace");
+      void loadManagerWorkspace();
+      return;
+    }
+
+    setActiveTab("suppliers");
+    void loadSuppliers();
+  };
+
+  const selectedKnowledgeItem =
+    items.find((item) => item.id === selectedKnowledgeId) ?? null;
+
+  const notifications: AdminNotification[] = [
+    ...reviewItems.slice(0, 3).map((item) => ({
+      id: `review-${item.id}`,
+      title: item.title,
+      hint: "Материал ждёт проверки",
+      tone: "review" as const,
+      onOpen: () => setActiveTab("review"),
+    })),
+    ...knowledgeGaps.slice(0, 3).map((gap) => ({
+      id: `gap-${gap.id}`,
+      title: gap.user_question,
+      hint: "Вопрос без уверенного ответа",
+      tone: "gap" as const,
+      onOpen: () => {
+        setActiveTab("learning");
+        void loadLearningQuestion();
+      },
+    })),
+    ...(dashboard?.queues.downFeedback.slice(0, 2) ?? []).map((item) => ({
+      id: `down-${item.id}`,
+      title: item.conversationTitle,
+      hint: "Ответ отмечен как «не помогло»",
+      tone: "alert" as const,
+      onOpen: () => {
+        setActiveTab("history");
+        void loadHistory();
+      },
+    })),
+  ];
+
+  const roleLabel = currentUserRoles.includes("admin")
+    ? "Администратор"
+    : currentUserRoles[0] || "Сотрудник";
+
   return (
-    <main className="min-h-screen bg-[#eef4fb] text-neutral-950">
-      <header className="sticky top-0 z-30 border-b border-white/70 bg-white/92 shadow-sm backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <BrandMark size="md" variant="full" />
-            <div className="min-w-0">
-              <h1 className="text-2xl font-semibold">
-                Панель управления ботом
-              </h1>
+    <div className="admin-shell text-neutral-950">
+      <AdminTopNav
+        active={primaryNav}
+        isAdminUser={isAdminUser}
+        search={globalSearch}
+        onSearchChange={setGlobalSearch}
+        onSearchSubmit={() => {
+          setQuery(globalSearch);
+          setActiveTab("knowledge");
+        }}
+        notifications={notifications}
+        userLabel={currentUserEmail}
+        userRole={roleLabel}
+        onNavigate={navigatePrimary}
+        onLogout={() => void logout()}
+      />
+
+      {error ? (
+        <AdminErrorBanner title={adminErrorTitle(error)} message={error}>
+          {(error.includes("роль admin") ||
+            error.includes("ADMIN_ROLE_REQUIRED")) && (
+            <ol className="mt-3 list-decimal space-y-1 pl-5 text-red-700">
+              <li>Открой Supabase → Authentication → Users.</li>
+              <li>Выбери пользователя, под которым ты вошёл в админку.</li>
+              <li>
+                В <span className="font-mono">Raw app metadata</span> добавь{" "}
+                <span className="font-mono">{'{"role":"admin"}'}</span>.
+              </li>
+              <li>Выйди из админки и зайди снова, чтобы обновился JWT.</li>
+            </ol>
+          )}
+          {isRateLimitError(error) && (
+            <p className="mt-2 text-red-700">
+              Чтение базы не ломалось: сработал лимит на сохранения и
+              подтверждения карточек знаний. Обнови страницу и продолжай — в
+              локальной разработке этот лимит отключён.
+            </p>
+          )}
+        </AdminErrorBanner>
+      ) : null}
+
+      {activeTab === "dashboard" && isAdminUser ? (
+        <CommandCenter
+          userLabel={currentUserEmail}
+          systemOk={!dashboard?.setupRequired}
+          metrics={[
+            {
+              label: "Диалоги",
+              value: dashboard?.overview.conversations ?? history.length,
+            },
+            {
+              label: "Успешные ответы",
+              value: `${positiveFeedbackRate}%`,
+              hint: `${feedbackStats.up} полезных`,
+              tone: "up",
+            },
+            {
+              label: "Без уверенного ответа",
+              value: dashboard?.overview.gapsOpen ?? knowledgeGaps.length,
+              tone: knowledgeGaps.length > 0 ? "down" : "neutral",
+            },
+            {
+              label: "Эскалации",
+              value: dashboard?.overview.handoffsOpen ?? 0,
+              tone: (dashboard?.overview.handoffsOpen ?? 0) > 0 ? "down" : "neutral",
+            },
+          ]}
+          items={items}
+          statusCounts={knowledgeStatusCounts}
+          conversations={history}
+          gaps={knowledgeGaps}
+          downCount={feedbackStats.down}
+          onOpenKnowledge={() => setActiveTab("knowledge")}
+          onOpenKnowledgeStatus={(status) => {
+            setKnowledgeStatusFilter(status);
+            setActiveCategory("all");
+            setActiveTab("knowledge");
+          }}
+          onOpenReview={() => setActiveTab("review")}
+          onOpenDialogs={() => {
+            setActiveTab("history");
+            void loadHistory();
+          }}
+          onAddMaterial={() => {
+            resetForm();
+            setSelectedKnowledgeId(null);
+            setInspectorMode("create");
+            setInspectorOpen(true);
+            setActiveTab("knowledge");
+          }}
+          onOpenTests={(question) => {
+            if (question) {
+              setAiTestQuery(question);
+            }
+            setActiveTab("ai-tests");
+            void loadAiTests();
+          }}
+          onOpenLearning={() => {
+            setActiveTab("learning");
+            void loadLearningQuestion();
+          }}
+        />
+      ) : null}
+
+      {activeTab === "knowledge" && isAdminUser ? (
+        <KnowledgeWorkspace
+          items={items}
+          filteredItems={filteredItems}
+          selectedId={selectedKnowledgeId}
+          inspectorOpen={inspectorOpen}
+          inspectorMode={inspectorMode}
+          form={form}
+          loading={loading}
+          saving={saving}
+          query={query}
+          category={activeCategory}
+          language={knowledgeLanguageFilter}
+          status={knowledgeStatusFilter}
+          sort={knowledgeSort}
+          categories={categoryStats}
+          templates={TEMPLATES}
+          categoryLabel={getCategoryLabel}
+          onQuery={setQuery}
+          onCategory={setActiveCategory}
+          onLanguage={setKnowledgeLanguageFilter}
+          onStatus={setKnowledgeStatusFilter}
+          onSort={setKnowledgeSort}
+          onReset={() => {
+            setQuery("");
+            setActiveCategory("all");
+            setKnowledgeLanguageFilter("all");
+            setKnowledgeStatusFilter("all");
+            setKnowledgeSort("updated");
+          }}
+          onSelect={(item) => {
+            setSelectedKnowledgeId(item.id);
+            setInspectorMode("view");
+            setInspectorOpen(true);
+            setForm({
+              id: item.id,
+              title: item.title,
+              category: getCategoryId(item.category),
+              content: item.content,
+              language: item.language ?? "ru",
+              status: getKnowledgeStatus(item),
+              priority: item.priority ?? 0,
+              verified: Boolean(item.verified),
+              source: item.source ?? "admin",
+            });
+          }}
+          onAdd={() => {
+            resetForm();
+            setSelectedKnowledgeId(null);
+            setInspectorMode("create");
+            setInspectorOpen(true);
+          }}
+          onCloseInspector={() => {
+            setInspectorOpen(false);
+            setInspectorMode("view");
+          }}
+          onEdit={() => {
+            if (selectedKnowledgeItem) {
+              editItem(selectedKnowledgeItem);
+            }
+          }}
+          onFormChange={(patch) =>
+            setForm((prev) => ({ ...prev, ...patch }))
+          }
+          onSave={() => void saveItem()}
+          onSendToReview={() => {
+            if (selectedKnowledgeItem) {
+              void applyKnowledgeStatus(selectedKnowledgeItem, "review");
+            }
+          }}
+          onConfirm={() => {
+            if (selectedKnowledgeItem) {
+              void applyKnowledgeStatus(selectedKnowledgeItem, "verified");
+            }
+          }}
+          onArchive={() => {
+            if (selectedKnowledgeItem) {
+              void applyKnowledgeStatus(selectedKnowledgeItem, "archived");
+            }
+          }}
+          onDelete={() => {
+            if (selectedKnowledgeItem) {
+              void deleteItem(selectedKnowledgeItem);
+            }
+          }}
+          onApplyTemplate={(label) => {
+            const template = TEMPLATES.find((item) => item.label === label);
+            if (template) {
+              applyTemplate(template);
+            }
+          }}
+        />
+      ) : null}
+
+      {activeTab !== "dashboard" && activeTab !== "knowledge" ? (
+        <ModuleFrame
+          title={
+            activeTab === "history"
+              ? "Диалоги"
+              : activeTab === "review"
+                ? "Проверка"
+                : activeTab === "requests"
+                  ? "Заявки"
+                  : activeTab === "suppliers"
+                    ? "Поставщики"
+                    : activeTab === "ai-tests"
+                      ? "AI Test Center"
+                      : activeTab === "learning"
+                        ? "Обучение"
+                        : activeTab === "analytics"
+                          ? "Аналитика"
+                          : "Рабочее место"
+          }
+          subtitle={
+            activeTab === "history"
+              ? "Переписки жителей, оценки и пробелы знаний."
+              : activeTab === "review"
+                ? "Поочередная проверка материалов перед публикацией."
+                : activeTab === "ai-tests"
+                  ? "Просмотр eval-кейсов без автоматических вызовов OpenAI."
+                  : activeTab === "learning"
+                    ? "Закрытие пробелов знаний объяснениями для бота."
+                    : activeTab === "analytics"
+                      ? "Качество ответов, тесты и обучение ассистента."
+                      : activeTab === "suppliers"
+                        ? "Менеджеры и поставщики, которые использует бот."
+                        : activeTab === "requests"
+                          ? "Корректировки показаний, обращения и записи."
+                          : "Очередь вопросов, назначенных на менеджера."
+          }
+          tabs={
+            activeTab === "suppliers" ||
+            activeTab === "requests" ||
+            activeTab === "manager-workspace" ? (
+              <ModuleTabs
+                active={activeTab}
+                onChange={(id) => {
+                  if (id === "suppliers") {
+                    setActiveTab("suppliers");
+                    void loadSuppliers();
+                  } else if (id === "requests") {
+                    setActiveTab("requests");
+                    void loadRequests();
+                  } else {
+                    setActiveTab("manager-workspace");
+                    void loadManagerWorkspace();
+                    if (isAdminUser) {
+                      void loadAdminManagerWorkspace();
+                    }
+                  }
+                }}
+                items={[
+                  { id: "suppliers", label: "Поставщики", count: suppliers.length },
+                  {
+                    id: "requests",
+                    label: "Заявки",
+                    count: totalRequests,
+                  },
+                  {
+                    id: "manager-workspace",
+                    label: "Рабочее место",
+                    count: managerWorkspace?.items.length,
+                  },
+                ]}
+              />
+            ) : activeTab === "analytics" ||
+              activeTab === "ai-tests" ||
+              activeTab === "learning" ? (
+              <ModuleTabs
+                active={activeTab}
+                onChange={(id) => {
+                  if (id === "ai-tests") {
+                    setActiveTab("ai-tests");
+                    void loadAiTests();
+                  } else if (id === "learning") {
+                    setActiveTab("learning");
+                    void loadLearningQuestion();
+                  } else {
+                    setActiveTab("analytics");
+                    void loadDashboard();
+                  }
+                }}
+                items={[
+                  { id: "analytics", label: "Качество" },
+                  {
+                    id: "ai-tests",
+                    label: "AI Test Center",
+                    count: aiTests.length,
+                  },
+                  {
+                    id: "learning",
+                    label: "Обучение",
+                    count: knowledgeGaps.length,
+                  },
+                ]}
+              />
+            ) : undefined
+          }
+        >
+      {activeTab === "analytics" ? (
+        <>
+        <div className="grid gap-6 xl:grid-cols-2">
+          <section className="rounded-2xl border border-neutral-200/80 bg-white p-5">
+            <h2 className="text-base font-semibold">Качество ответов</h2>
+            <p className="mt-1 text-sm text-neutral-500">
+              Полезные оценки, негатив и пробелы базы.
+            </p>
+            <div className="mt-5 grid grid-cols-3 gap-3">
+              {[
+                ["Полезно", feedbackStats.up],
+                ["Не помогло", feedbackStats.down],
+                ["Пробелы", knowledgeGaps.length],
+              ].map(([label, value]) => (
+                <div key={String(label)} className="rounded-xl bg-neutral-50 p-3">
+                  <div className="text-xs text-neutral-500">{label}</div>
+                  <div className="mt-1 text-2xl font-semibold">{value}</div>
+                </div>
+              ))}
+            </div>
+          </section>
+          <section className="rounded-2xl border border-neutral-200/80 bg-white p-5">
+            <h2 className="text-base font-semibold">Негативные оценки</h2>
+            {(dashboard?.queues.downFeedback.length ?? 0) === 0 ? (
+              <p className="mt-3 text-sm text-neutral-500">
+                Негативных оценок в последних сообщениях нет.
+              </p>
+            ) : (
+              <div className="mt-3 divide-y divide-neutral-100">
+                {dashboard?.queues.downFeedback.map((message) => (
+                  <article key={message.id} className="py-3">
+                    <div className="text-sm font-medium">
+                      {message.conversationTitle}
+                    </div>
+                    <p className="mt-1 line-clamp-2 text-sm text-neutral-500">
+                      {message.content}
+                    </p>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+        <section className="mt-6 rounded-2xl border border-neutral-200/80 bg-white p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold">Операторская очередь</h2>
               <p className="mt-1 text-sm text-neutral-500">
-                База знаний, история вопросов и качество ответов
+                Диалоги, где житель попросил оператора.
               </p>
             </div>
+            {dashboardLoading ? (
+              <span className="text-sm text-neutral-400">Обновляю…</span>
+            ) : null}
           </div>
-
-          <button
-            onClick={logout}
-            className="h-10 rounded-md border border-neutral-300 bg-white px-4 text-sm font-medium hover:bg-neutral-50"
-          >
-            Выйти
-          </button>
-        </div>
-      </header>
-
-      <div className="mx-auto grid max-w-7xl gap-6 px-5 py-6 lg:grid-cols-[260px_1fr]">
-        <aside className="surface-panel h-fit rounded-lg border border-white/70 p-3 lg:sticky lg:top-24">
-          <div className="px-2 pb-3 pt-1">
-            <div className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
-              Разделы
+          {(dashboard?.queues.handoffs.length ?? 0) === 0 ? (
+            <p className="text-sm text-neutral-500">
+              Открытых операторских обращений нет.
+            </p>
+          ) : (
+            <div className="divide-y divide-neutral-100">
+              {dashboard?.queues.handoffs.map((handoff) => (
+                <article
+                  key={handoff.id}
+                  className="flex flex-col gap-3 py-4 md:flex-row md:items-start md:justify-between"
+                >
+                  <div className="min-w-0">
+                    <div className="mb-2 text-xs text-neutral-400">
+                      {formatDate(handoff.created_at)} · {statusLabel(handoff.status)}
+                    </div>
+                    <p className="whitespace-pre-wrap text-sm leading-6 text-neutral-700">
+                      {handoff.user_message}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void updateOperatorHandoffStatus(handoff, "in_progress")
+                      }
+                      className="h-9 rounded-lg border border-neutral-200 px-3 text-sm font-medium hover:bg-neutral-50"
+                    >
+                      Принять
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void updateOperatorHandoffStatus(handoff, "done")
+                      }
+                      className="h-9 rounded-lg border border-emerald-200 px-3 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+                    >
+                      Закрыть
+                    </button>
+                  </div>
+                </article>
+              ))}
             </div>
-          </div>
-          <div className="flex flex-col gap-1">
-          <button
-            onClick={() => {
-              setActiveTab("manager-workspace");
-              void loadManagerWorkspace();
-              if (isAdminUser) {
-                void loadAdminManagerWorkspace();
-              }
-            }}
-            className={`h-10 rounded-md px-3 text-left text-sm font-semibold transition ${
-              activeTab === "manager-workspace"
-                ? "bg-blue-600 text-white shadow-sm"
-                : "text-neutral-600 hover:bg-neutral-50"
-            }`}
-          >
-            Мои вопросы ({managerWorkspace?.items.length ?? 0})
-          </button>
-          {isAdminUser && (
-            <>
-          <button
-            onClick={() => {
-              setActiveTab("dashboard");
-              void loadDashboard();
-            }}
-            className={`h-10 rounded-md px-3 text-left text-sm font-semibold transition ${
-              activeTab === "dashboard"
-                ? "bg-blue-600 text-white shadow-sm"
-                : "text-neutral-600 hover:bg-neutral-50"
-            }`}
-          >
-            Обзор
-          </button>
-          <button
-            onClick={() => setActiveTab("knowledge")}
-            className={`h-10 rounded-md px-3 text-left text-sm font-semibold transition ${
-              activeTab === "knowledge"
-                ? "bg-blue-600 text-white shadow-sm"
-                : "text-neutral-600 hover:bg-neutral-50"
-            }`}
-          >
-            База знаний
-          </button>
-          <button
-            onClick={() => {
-              setActiveTab("history");
-              void loadHistory();
-            }}
-            className={`h-10 rounded-md px-3 text-left text-sm font-semibold transition ${
-              activeTab === "history"
-                ? "bg-blue-600 text-white shadow-sm"
-                : "text-neutral-600 hover:bg-neutral-50"
-            }`}
-          >
-            История вопросов
-          </button>
-          <button
-            onClick={() => {
-              setActiveTab("requests");
-              void loadRequests();
-            }}
-            className={`h-10 rounded-md px-3 text-left text-sm font-semibold transition ${
-              activeTab === "requests"
-                ? "bg-blue-600 text-white shadow-sm"
-                : "text-neutral-600 hover:bg-neutral-50"
-            }`}
-          >
-            Заявки (
-            {meterCorrections.length +
-              appealRequests.length +
-              leadershipAppointments.length}
-            )
-          </button>
-          <button
-            onClick={() => {
-              setActiveTab("suppliers");
-              void loadSuppliers();
-            }}
-            className={`h-10 rounded-md px-3 text-left text-sm font-semibold transition ${
-              activeTab === "suppliers"
-                ? "bg-blue-600 text-white shadow-sm"
-                : "text-neutral-600 hover:bg-neutral-50"
-            }`}
-          >
-            Поставщики ({suppliers.length})
-          </button>
-          <button
-            onClick={() => setActiveTab("review")}
-            className={`h-10 rounded-md px-3 text-left text-sm font-semibold transition ${
-              activeTab === "review"
-                ? "bg-blue-600 text-white shadow-sm"
-                : "text-neutral-600 hover:bg-neutral-50"
-            }`}
-          >
-            Проверка ({reviewItems.length})
-          </button>
-          <button
-            onClick={() => {
-              setActiveTab("ai-tests");
-              void loadAiTests();
-            }}
-            className={`h-10 rounded-md px-3 text-left text-sm font-semibold transition ${
-              activeTab === "ai-tests"
-                ? "bg-blue-600 text-white shadow-sm"
-                : "text-neutral-600 hover:bg-neutral-50"
-            }`}
-          >
-            AI Test Center ({aiTests.length})
-          </button>
-          <button
-            onClick={() => {
-              setActiveTab("learning");
-              void loadLearningQuestion();
-            }}
-            className={`h-10 rounded-md px-3 text-left text-sm font-semibold transition ${
-              activeTab === "learning"
-                ? "bg-blue-600 text-white shadow-sm"
-                : "text-neutral-600 hover:bg-neutral-50"
-            }`}
-          >
-            Обучение ({knowledgeGaps.length})
-          </button>
-            </>
           )}
-          </div>
-
-          <div className="mt-4 grid gap-2 border-t border-neutral-200 pt-4">
-            <div className="rounded-md bg-neutral-50 p-3">
-              <div className="text-xs text-neutral-500">Knowledge</div>
-              <div className="mt-1 text-lg font-semibold">
-                {verifiedCount}/{items.length}
-              </div>
-            </div>
-            <div className="rounded-md bg-neutral-50 p-3">
-              <div className="text-xs text-neutral-500">Поставщики</div>
-              <div className="mt-1 text-lg font-semibold">
-                {assignedSuppliersCount}/{suppliers.length}
-              </div>
-            </div>
-            <div className="rounded-md bg-neutral-50 p-3">
-              <div className="text-xs text-neutral-500">Очередь</div>
-              <div className="mt-1 text-lg font-semibold">
-                {knowledgeGaps.length + meterCorrections.length}
-              </div>
-            </div>
-          </div>
-        </aside>
-
-        <section className="min-w-0">
-
-        {error && (
-          <div className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-            <div className="font-semibold">
-              {error.includes("роль admin") || error.includes("ADMIN_ROLE_REQUIRED")
-                ? "Нужна роль администратора"
-                : "Ошибка загрузки админки"}
-            </div>
-            <div className="mt-1">{error}</div>
-            {(error.includes("роль admin") || error.includes("ADMIN_ROLE_REQUIRED")) && (
-              <ol className="mt-3 list-decimal space-y-1 pl-5 text-red-700">
-                <li>Открой Supabase → Authentication → Users.</li>
-                <li>Выбери пользователя, под которым ты вошёл в админку.</li>
-                <li>
-                  В <span className="font-mono">Raw app metadata</span> добавь{" "}
-                  <span className="font-mono">{'{"role":"admin"}'}</span>.
-                </li>
-                <li>Выйди из админки и зайди снова, чтобы обновился JWT.</li>
-              </ol>
-            )}
-          </div>
-        )}
-
-        {activeTab === "manager-workspace" ? (
+        </section>
+        </>
+      ) : activeTab === "manager-workspace" ? (
           <>
             <section className="mb-5 grid gap-3 md:grid-cols-3">
               <div className="rounded-lg border border-neutral-200 bg-white p-4">
@@ -2317,7 +2784,7 @@ export default function AdminPage() {
                       void mutateManagerWorkspace({ action: "claim_next" })
                     }
                     disabled={managerWorkspaceSaving}
-                    className="h-10 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                    className="h-10 rounded-md bg-blue-600 px-4 text-sm font-semibold text-on-accent hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
                   >
                     {managerWorkspaceSaving ? "Беру..." : "Взять следующий"}
                   </button>
@@ -2479,7 +2946,7 @@ export default function AdminPage() {
                                 !canEdit ||
                                 !draft.answer.trim()
                               }
-                              className="mt-3 h-10 w-full rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                              className="mt-3 h-10 w-full rounded-md bg-blue-600 px-4 text-sm font-semibold text-on-accent hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
                             >
                               Отправить на проверку
                             </button>
@@ -2657,7 +3124,7 @@ export default function AdminPage() {
                                     managerWorkspaceSaving ||
                                     !adminAssignInputs[item.id]?.trim()
                                   }
-                                  className="h-9 rounded-md bg-blue-600 px-3 text-xs font-semibold text-white hover:bg-blue-700 disabled:bg-neutral-400"
+                                  className="h-9 rounded-md bg-blue-600 px-3 text-xs font-semibold text-on-accent hover:bg-blue-700 disabled:bg-neutral-400"
                                 >
                                   Назначить
                                 </button>
@@ -2711,789 +3178,6 @@ export default function AdminPage() {
                 )}
               </section>
             )}
-          </>
-        ) : activeTab === "dashboard" ? (
-          <>
-            <section className="mb-5 overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-sm">
-              <div className="grid gap-0 lg:grid-cols-[1.2fr_0.8fr]">
-                <div className="p-5 md:p-6">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center gap-2 rounded-md bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-700">
-                      <Sparkles className="h-3.5 w-3.5" />
-                      MVP control room
-                    </span>
-                    <span className="rounded-md bg-neutral-100 px-3 py-1 text-xs font-medium text-neutral-600">
-                      {readinessPill}
-                    </span>
-                  </div>
-                  <div className="mt-5 flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
-                    <div>
-                      <h2 className="text-2xl font-semibold tracking-tight text-neutral-950 md:text-3xl">
-                        Админка для запуска и ежедневного контроля
-                      </h2>
-                      <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-600">
-                        Здесь видно качество базы, очередь заявок, проблемные
-                        вопросы и покрытие поставщиков менеджерами. Это главный
-                        экран для показа руководству и контроля MVP после запуска.
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-blue-100 bg-blue-50 px-5 py-4">
-                      <div className="text-sm font-medium text-blue-700">
-                        Готовность MVP
-                      </div>
-                      <div className="mt-1 text-4xl font-semibold text-blue-950">
-                        {mvpReadiness}%
-                      </div>
-                      <div className="mt-3 h-2 rounded-full bg-white">
-                        <div
-                          className="h-2 rounded-full bg-blue-600"
-                          style={{ width: `${mvpReadiness}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-6 grid gap-3 md:grid-cols-4">
-                    {[
-                      {
-                        label: "База знаний",
-                        value: `${knowledgeCoverage}%`,
-                        hint: `${verifiedCount}/${items.length} проверено`,
-                        icon: DatabaseZap,
-                      },
-                      {
-                        label: "Поставщики",
-                        value: `${supplierCoverage}%`,
-                        hint: `${assignedSuppliersCount}/${suppliers.length} с менеджером`,
-                        icon: Building2,
-                      },
-                      {
-                        label: "Открытые заявки",
-                        value: openRequestTotal,
-                        hint: `${totalRequests} всего в админке`,
-                        icon: ClipboardList,
-                      },
-                      {
-                        label: "Качество",
-                        value: `${positiveFeedbackRate}%`,
-                        hint: "доля полезных оценок",
-                        icon: ShieldCheck,
-                      },
-                    ].map((metric) => (
-                      <div
-                        key={metric.label}
-                        className="rounded-lg border border-neutral-200 bg-neutral-50 p-4"
-                      >
-                        <metric.icon className="h-4 w-4 text-blue-700" />
-                        <div className="mt-3 text-sm text-neutral-500">
-                          {metric.label}
-                        </div>
-                        <div className="mt-1 text-2xl font-semibold">
-                          {metric.value}
-                        </div>
-                        <div className="mt-1 text-xs text-neutral-400">
-                          {metric.hint}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="border-t border-neutral-200 bg-neutral-50 p-5 md:p-6 lg:border-l lg:border-t-0">
-                  <div className="mb-4 flex items-center gap-2">
-                    <AlertTriangle className="h-5 w-5 text-amber-600" />
-                    <ListChecks className="h-5 w-5 text-blue-700" />
-                    <h3 className="font-semibold">Что добить первым</h3>
-                  </div>
-                  <div className="space-y-3">
-                    {priorityActions.map((action) => (
-                      <button
-                        key={action.label}
-                        onClick={action.action}
-                        className="flex w-full items-center justify-between gap-3 rounded-lg border border-neutral-200 bg-white p-4 text-left transition hover:border-blue-200 hover:bg-blue-50"
-                      >
-                        <div>
-                          <div className="text-sm font-semibold">
-                            {action.label}
-                          </div>
-                          <div className="mt-1 text-xs text-neutral-500">
-                            {action.hint}
-                          </div>
-                        </div>
-                        <div className="text-2xl font-semibold">
-                          {action.value}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section className="mb-5 rounded-lg border border-blue-100 bg-gradient-to-br from-white to-blue-50 p-5 shadow-sm">
-              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <div className="text-sm font-semibold text-blue-700">
-                    MVP контроль
-                  </div>
-                  <h2 className="mt-1 text-2xl font-semibold">
-                    Обзор ассистента Астана-ЕРЦ
-                  </h2>
-                  <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-600">
-                    Здесь собраны очереди, качество ответов и ручные действия:
-                    оператор, заявки, база знаний и оценки жителей.
-                  </p>
-                </div>
-                <button
-                  onClick={() => void loadDashboard()}
-                  className="h-10 rounded-md border border-blue-200 bg-white px-4 text-sm font-semibold text-blue-700 hover:bg-blue-50"
-                >
-                  Обновить обзор
-                </button>
-              </div>
-
-              {dashboardLoading ? (
-                <div className="mt-5 text-sm text-neutral-500">
-                  Загружаю сводку...
-                </div>
-              ) : dashboard ? (
-                <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  {[
-                    ["База знаний", `${dashboard.overview.knowledgeVerified}/${dashboard.overview.knowledgeTotal}`, "проверено"],
-                    ["Диалоги", dashboard.overview.conversations, "последние"],
-                    ["Новые заявки", dashboard.overview.requestsNew, "ждут приема"],
-                    ["Квитанции", dashboard.overview.receiptsNew, "на проверке"],
-                    ["Оператор", dashboard.overview.handoffsOpen, "ручная очередь"],
-                    ["Пробелы базы", dashboard.overview.gapsOpen, "открыто"],
-                    ["Не помогло", dashboard.overview.feedbackDown, "оценок"],
-                    ["Полезно", dashboard.overview.feedbackUp, "оценок"],
-                    ["В работе", dashboard.overview.requestsActive, "заявок"],
-                  ].map(([label, value, hint]) => (
-                    <div
-                      key={label}
-                      className="rounded-lg border border-white/80 bg-white p-4 shadow-sm"
-                    >
-                      <div className="text-sm text-neutral-500">{label}</div>
-                      <div className="mt-2 text-3xl font-semibold">{value}</div>
-                      <div className="mt-1 text-xs text-neutral-400">{hint}</div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="mt-5 text-sm text-neutral-500">
-                  Сводка пока не загружена.
-                </div>
-              )}
-            </section>
-
-            <section className="mb-5 rounded-lg border border-neutral-200 bg-white p-5">
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                    <h2 className="font-semibold">Сценарии для показа MVP</h2>
-                  </div>
-                  <p className="mt-1 text-sm text-neutral-500">
-                    Короткий список функций, которые стоит показать на презентации
-                    живыми вопросами в чате.
-                  </p>
-                </div>
-                <button
-                  onClick={() => {
-                    setActiveTab("history");
-                    void loadHistory();
-                  }}
-                  className="h-10 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50"
-                >
-                  Смотреть диалоги
-                </button>
-              </div>
-              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                {[
-                  "Найти менеджера по ОСИ Soho-2, БИН или коду поставщика",
-                  "Открыть форму корректировки показаний счетчика",
-                  "Оставить обычное обращение с файлами",
-                  "Записаться на прием к руководству",
-                  "Получить контакт техподдержки WhatsApp",
-                  "Передать диалог оператору",
-                  "Получить ответ на русском или казахском",
-                  "Увидеть пробелы базы и подготовить черновик ответа",
-                ].map((scenario) => (
-                  <div
-                    key={scenario}
-                    className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-sm leading-5 text-neutral-700"
-                  >
-                    {scenario}
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            {dashboard && (
-              <>
-                <section className="mb-5 grid gap-3 lg:grid-cols-3">
-                  {dashboard.insights.map((insight) => (
-                    <div
-                      key={insight}
-                      className="rounded-lg border border-neutral-200 bg-white p-4 text-sm leading-6 text-neutral-700"
-                    >
-                      {insight}
-                    </div>
-                  ))}
-                </section>
-
-                <section className="grid gap-5 xl:grid-cols-[1.1fr_1fr]">
-                  <div className="rounded-lg border border-neutral-200 bg-white">
-                    <div className="border-b border-neutral-200 p-4">
-                      <h2 className="font-semibold">Операторская очередь</h2>
-                      <p className="mt-1 text-sm text-neutral-500">
-                        Диалоги, где житель явно попросил оператора или ручную
-                        обработку.
-                      </p>
-                    </div>
-
-                    {dashboard.queues.handoffs.length === 0 ? (
-                      <div className="p-4 text-sm text-neutral-500">
-                        Открытых операторских обращений нет.
-                      </div>
-                    ) : (
-                      <div className="divide-y divide-neutral-200">
-                        {dashboard.queues.handoffs.map((handoff) => (
-                          <article key={handoff.id} className="p-4">
-                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                              <div className="min-w-0">
-                                <div className="mb-2 flex flex-wrap items-center gap-2">
-                                  <span
-                                    className={`rounded-md px-2 py-1 text-xs font-medium ${statusClassName(
-                                      handoff.status
-                                    )}`}
-                                  >
-                                    {statusLabel(handoff.status)}
-                                  </span>
-                                  <span className="rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600">
-                                    {formatDate(handoff.created_at)}
-                                  </span>
-                                  <span className="rounded-md bg-violet-50 px-2 py-1 text-xs font-medium text-violet-700">
-                                    priority {handoff.priority}
-                                  </span>
-                                </div>
-                                <p className="whitespace-pre-wrap text-sm leading-6 text-neutral-700">
-                                  {handoff.user_message}
-                                </p>
-                                {handoff.visitor_id && (
-                                  <p className="mt-2 text-xs text-neutral-400">
-                                    visitor: {handoff.visitor_id}
-                                  </p>
-                                )}
-                              </div>
-                              <div className="flex shrink-0 flex-wrap gap-2">
-                                <button
-                                  onClick={() =>
-                                    void updateOperatorHandoffStatus(
-                                      handoff,
-                                      "in_progress"
-                                    )
-                                  }
-                                  className="h-9 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50"
-                                >
-                                  Принять
-                                </button>
-                                <button
-                                  onClick={() =>
-                                    void updateOperatorHandoffStatus(
-                                      handoff,
-                                      "done"
-                                    )
-                                  }
-                                  className="h-9 rounded-md border border-emerald-200 px-3 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
-                                >
-                                  Закрыть
-                                </button>
-                              </div>
-                            </div>
-                          </article>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-5">
-                    <section className="rounded-lg border border-neutral-200 bg-white">
-                      <div className="border-b border-neutral-200 p-4">
-                        <h2 className="font-semibold">Качество ответов</h2>
-                        <p className="mt-1 text-sm text-neutral-500">
-                          Последние ответы, которые отметили как “не помогло”.
-                        </p>
-                      </div>
-
-                      {dashboard.queues.downFeedback.length === 0 ? (
-                        <div className="p-4 text-sm text-neutral-500">
-                          Негативных оценок в последних сообщениях нет.
-                        </div>
-                      ) : (
-                        <div className="divide-y divide-neutral-200">
-                          {dashboard.queues.downFeedback.map((message) => (
-                            <article key={message.id} className="p-4">
-                              <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
-                                <span>{formatDate(message.created_at)}</span>
-                                {message.source && <span>{message.source}</span>}
-                              </div>
-                              <h3 className="text-sm font-semibold">
-                                {message.conversationTitle}
-                              </h3>
-                              <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-sm leading-6 text-neutral-600">
-                                {message.content}
-                              </p>
-                            </article>
-                          ))}
-                        </div>
-                      )}
-                    </section>
-
-                    <section className="rounded-lg border border-neutral-200 bg-white">
-                      <div className="border-b border-neutral-200 p-4">
-                        <h2 className="font-semibold">Черновики для базы</h2>
-                        <p className="mt-1 text-sm text-neutral-500">
-                          Самые свежие вопросы, которые стоит закрыть
-                          проверенной записью.
-                        </p>
-                      </div>
-
-                      {dashboard.queues.gaps.length === 0 ? (
-                        <div className="p-4 text-sm text-neutral-500">
-                          Открытых пробелов базы нет.
-                        </div>
-                      ) : (
-                        <div className="divide-y divide-neutral-200">
-                          {dashboard.queues.gaps.slice(0, 5).map((gap) => (
-                            <article key={gap.id} className="p-4">
-                              <div className="mb-2 flex flex-wrap items-center gap-2">
-                                <span className="rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800">
-                                  {gap.topic}
-                                </span>
-                                <span className="text-xs text-neutral-400">
-                                  {formatDate(gap.created_at)}
-                                </span>
-                              </div>
-                              <p className="text-sm font-semibold">
-                                {gap.user_question}
-                              </p>
-                              <button
-                                onClick={() => void createKnowledgeFromGap(gap)}
-                                className="mt-3 h-9 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50"
-                              >
-                                Подготовить черновик
-                              </button>
-                            </article>
-                          ))}
-                        </div>
-                      )}
-                    </section>
-                  </div>
-                </section>
-              </>
-            )}
-          </>
-        ) : activeTab === "knowledge" ? (
-          <>
-            <section className="mb-5 grid gap-3 md:grid-cols-3">
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
-                <div className="text-sm text-neutral-500">Всего записей</div>
-                <div className="mt-2 text-3xl font-semibold">
-                  {items.length}
-                </div>
-              </div>
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
-                <div className="text-sm text-neutral-500">Проверено</div>
-                <div className="mt-2 text-3xl font-semibold">
-                  {verifiedCount}
-                </div>
-              </div>
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
-                <div className="text-sm text-neutral-500">Разделов</div>
-                <div className="mt-2 text-3xl font-semibold">
-                  {CATEGORIES.length}
-                </div>
-              </div>
-            </section>
-
-            <section className="mb-5 overflow-hidden rounded-lg border border-neutral-200 bg-white">
-              <div className="border-b border-neutral-200 px-4 py-3">
-                <h2 className="font-semibold">Разделы</h2>
-              </div>
-              <div className="grid gap-px bg-neutral-200 md:grid-cols-4">
-                <button
-                  onClick={() => setActiveCategory("all")}
-                  className={`bg-white p-4 text-left hover:bg-neutral-50 ${
-                    activeCategory === "all"
-                      ? "ring-2 ring-inset ring-blue-600"
-                      : ""
-                  }`}
-                >
-                  <div className="font-medium">Все</div>
-                  <div className="mt-1 text-sm text-neutral-500">
-                    {items.length} записей
-                  </div>
-                </button>
-                {categoryStats.map((category) => (
-                  <button
-                    key={category.id}
-                    onClick={() => setActiveCategory(category.id)}
-                    className={`bg-white p-4 text-left hover:bg-neutral-50 ${
-                      activeCategory === category.id
-                        ? "ring-2 ring-inset ring-blue-600"
-                        : ""
-                    }`}
-                  >
-                    <div className="font-medium">{category.label}</div>
-                    <div className="mt-1 text-sm text-neutral-500">
-                      {category.count} записей
-                    </div>
-                    <div className="mt-2 text-xs leading-5 text-neutral-400">
-                      {category.hint}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            <section className="mb-5 rounded-lg border border-neutral-200 bg-white p-4">
-              <div className="grid gap-3 md:grid-cols-[1fr_180px_140px]">
-                <input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  className="h-10 rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
-                  placeholder="Поиск по базе знаний"
-                />
-                <select
-                  value={knowledgeStatusFilter}
-                  onChange={(e) =>
-                    setKnowledgeStatusFilter(
-                      e.target.value as KnowledgeStatus | "all"
-                    )
-                  }
-                  className="h-10 rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
-                >
-                  {KNOWLEDGE_STATUSES.map((status) => (
-                    <option key={status.id} value={status.id}>
-                      {status.label}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={knowledgeLanguageFilter}
-                  onChange={(e) =>
-                    setKnowledgeLanguageFilter(
-                      e.target.value as "all" | "ru" | "kk"
-                    )
-                  }
-                  className="h-10 rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
-                >
-                  <option value="all">Все языки</option>
-                  <option value="ru">RU</option>
-                  <option value="kk">KK</option>
-                </select>
-              </div>
-            </section>
-
-            <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
-              <section className="h-fit rounded-lg border border-neutral-200 bg-white p-5">
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <div>
-                    <h2 className="font-semibold">
-                      {form.id ? "Редактирование" : "Новая запись"}
-                    </h2>
-                    <p className="mt-1 text-sm text-neutral-500">
-                      Сохранение обновит embedding автоматически.
-                    </p>
-                  </div>
-
-                  {form.id && (
-                    <button
-                      onClick={resetForm}
-                      className="rounded-md border border-neutral-300 px-3 py-2 text-sm hover:bg-neutral-50"
-                    >
-                      Сброс
-                    </button>
-                  )}
-                </div>
-
-                {!form.id && (
-                  <div className="mb-5">
-                    <div className="mb-2 text-sm font-medium text-neutral-700">
-                      Быстрый бланк
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {TEMPLATES.map((template) => (
-                        <button
-                          key={template.label}
-                          onClick={() => applyTemplate(template)}
-                          className="rounded-md border border-neutral-300 bg-neutral-50 px-3 py-2 text-left text-sm hover:border-blue-500 hover:bg-white"
-                        >
-                          {template.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <label className="mb-4 block">
-                  <span className="mb-1 block text-sm font-medium text-neutral-700">
-                    Вопрос жителя
-                  </span>
-                  <input
-                    value={form.title}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        title: e.target.value,
-                      }))
-                    }
-                    className="h-11 w-full rounded-md border border-neutral-300 bg-white px-3 outline-none focus:border-blue-600"
-                    placeholder="Вопрос будет подставлен автоматически"
-                  />
-                </label>
-
-                <label className="mb-4 block">
-                  <span className="mb-1 block text-sm font-medium text-neutral-700">
-                    Раздел
-                  </span>
-                  <select
-                    value={form.category}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        category: e.target.value,
-                      }))
-                    }
-                    className="h-11 w-full rounded-md border border-neutral-300 bg-white px-3 outline-none focus:border-blue-600"
-                  >
-                    {CATEGORIES.map((category) => (
-                      <option key={category.id} value={category.id}>
-                        {category.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="mb-4 block">
-                  <span className="mb-1 block text-sm font-medium text-neutral-700">
-                    Ответ для бота
-                  </span>
-                  <textarea
-                    value={form.content}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        content: e.target.value,
-                      }))
-                    }
-                    className="min-h-40 w-full resize-y rounded-md border border-neutral-300 bg-white px-3 py-2 leading-6 outline-none focus:border-blue-600"
-                    placeholder="Короткий проверенный ответ, который бот может дать пользователю."
-                  />
-                </label>
-
-                <div className="mb-4 grid grid-cols-2 gap-3">
-                  <label className="block">
-                    <span className="mb-1 block text-sm font-medium text-neutral-700">
-                      Язык
-                    </span>
-                    <select
-                      value={form.language}
-                      onChange={(e) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          language: e.target.value === "kk" ? "kk" : "ru",
-                        }))
-                      }
-                      className="h-11 w-full rounded-md border border-neutral-300 bg-white px-3 outline-none focus:border-blue-600"
-                    >
-                      <option value="ru">Русский</option>
-                      <option value="kk">Қазақша</option>
-                    </select>
-                  </label>
-
-                  <label className="block">
-                    <span className="mb-1 block text-sm font-medium text-neutral-700">
-                      Статус
-                    </span>
-                    <select
-                      value={form.status}
-                      onChange={(e) => {
-                        const status = e.target.value as KnowledgeStatus;
-
-                        setForm((prev) => ({
-                          ...prev,
-                          status,
-                          verified: status === "verified",
-                        }));
-                      }}
-                      className="h-11 w-full rounded-md border border-neutral-300 bg-white px-3 outline-none focus:border-blue-600"
-                    >
-                      {KNOWLEDGE_STATUSES.filter(
-                        (item) => item.id !== "all"
-                      ).map((status) => (
-                        <option key={status.id} value={status.id}>
-                          {status.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-
-                <div className="mb-4 grid grid-cols-[1fr_120px] gap-3">
-                  <label className="block">
-                    <span className="mb-1 block text-sm font-medium text-neutral-700">
-                      Источник
-                    </span>
-                    <input
-                      value={form.source}
-                      onChange={(e) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          source: e.target.value,
-                        }))
-                      }
-                      className="h-11 w-full rounded-md border border-neutral-300 bg-white px-3 outline-none focus:border-blue-600"
-                      placeholder="manual"
-                    />
-                  </label>
-
-                  <label className="block">
-                    <span className="mb-1 block text-sm font-medium text-neutral-700">
-                      Приоритет
-                    </span>
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={form.priority}
-                      onChange={(e) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          priority: Number(e.target.value),
-                        }))
-                      }
-                      className="h-11 w-full rounded-md border border-neutral-300 bg-white px-3 outline-none focus:border-blue-600"
-                    />
-                  </label>
-                </div>
-
-                <label className="mb-4 flex items-center gap-2 text-sm font-medium text-neutral-700">
-                  <input
-                    type="checkbox"
-                    checked={form.verified}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        verified: e.target.checked,
-                        status: e.target.checked ? "verified" : "review",
-                      }))
-                    }
-                    className="h-4 w-4"
-                  />
-                  Проверенная информация
-                </label>
-
-                <button
-                  onClick={saveItem}
-                  disabled={saving}
-                  className="h-11 w-full rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
-                >
-                  {saving
-                    ? "Сохраняю..."
-                    : form.id
-                      ? "Обновить"
-                      : "Добавить"}
-                </button>
-              </section>
-
-              <section className="rounded-lg border border-neutral-200 bg-white">
-                <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <h2 className="font-semibold">Лента записей</h2>
-                    <p className="mt-1 text-sm text-neutral-500">
-                      {filteredItems.length} из {items.length} записей
-                    </p>
-                  </div>
-
-                  <input
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 md:max-w-sm"
-                    placeholder="Поиск по заголовку, тексту или разделу"
-                  />
-                </div>
-
-                {loading ? (
-                  <div className="p-4 text-sm text-neutral-500">
-                    Загружаю...
-                  </div>
-                ) : (
-                  <div className="divide-y divide-neutral-200">
-                    {filteredItems.map((item) => (
-                      <article
-                        key={item.id}
-                        className="p-4 hover:bg-neutral-50"
-                      >
-                        <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                          <div>
-                            <div className="mb-2 flex flex-wrap items-center gap-2">
-                              <span className="rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
-                                {getCategoryLabel(item.category)}
-                              </span>
-                              <span
-                                className={`rounded-md px-2 py-1 text-xs font-medium ${
-                                  item.verified
-                                    ? "bg-emerald-50 text-emerald-700"
-                                    : "bg-neutral-100 text-neutral-600"
-                                }`}
-                              >
-                                {item.verified ? "Проверено" : "Черновик"}
-                              </span>
-                              <span className="text-xs text-neutral-500">
-                                Приоритет {item.priority ?? 0}
-                              </span>
-                            </div>
-                            <h3 className="text-base font-semibold">
-                              {item.title}
-                            </h3>
-                            <div className="mt-1 text-xs text-neutral-500">
-                              Источник: {item.source ?? "не указан"}
-                            </div>
-                          </div>
-
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => editItem(item)}
-                              className="h-9 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-white"
-                            >
-                              Изменить
-                            </button>
-                            <button
-                              onClick={() => deleteItem(item)}
-                              className="h-9 rounded-md border border-red-200 px-3 text-sm font-medium text-red-700 hover:bg-red-50"
-                            >
-                              Удалить
-                            </button>
-                          </div>
-                        </div>
-
-                        <p className="whitespace-pre-wrap text-sm leading-6 text-neutral-700">
-                          {item.content}
-                        </p>
-                      </article>
-                    ))}
-
-                    {filteredItems.length === 0 && (
-                      <div className="p-4 text-sm text-neutral-500">
-                        Ничего не найдено.
-                      </div>
-                    )}
-                  </div>
-                )}
-              </section>
-            </div>
           </>
         ) : activeTab === "suppliers" ? (
           <>
@@ -3582,7 +3266,7 @@ export default function AdminPage() {
                             aria-label={manager.managerName}
                           />
                         ) : (
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-blue-600 text-xs font-semibold text-white">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-blue-600 text-xs font-semibold text-on-accent">
                             {getInitials(manager.managerName)}
                           </div>
                         )}
@@ -3649,7 +3333,7 @@ export default function AdminPage() {
                             aria-label={manager.managerName}
                           />
                         ) : (
-                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-blue-600 text-xs font-semibold text-white">
+                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-blue-600 text-xs font-semibold text-on-accent">
                             {getInitials(manager.managerName)}
                           </div>
                         )}
@@ -3728,7 +3412,7 @@ export default function AdminPage() {
                             aria-label={managerForm.managerName}
                           />
                         ) : (
-                          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md bg-blue-600 text-sm font-semibold text-white">
+                          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md bg-blue-600 text-sm font-semibold text-on-accent">
                             {getInitials(managerForm.managerName || "М")}
                           </div>
                         )}
@@ -3751,7 +3435,7 @@ export default function AdminPage() {
                         <button
                           onClick={() => void saveManager()}
                           disabled={managerSaving}
-                          className="h-10 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                          className="h-10 rounded-md bg-blue-600 px-4 text-sm font-semibold text-on-accent hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
                         >
                           {managerSaving ? "Сохраняю..." : "Сохранить"}
                         </button>
@@ -3861,7 +3545,7 @@ export default function AdminPage() {
                         <button
                           onClick={() => void saveSupplier()}
                           disabled={supplierSaving}
-                          className="h-10 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                          className="h-10 rounded-md bg-blue-600 px-4 text-sm font-semibold text-on-accent hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
                         >
                           {supplierSaving ? "Сохраняю..." : "Сохранить"}
                         </button>
@@ -4124,7 +3808,7 @@ export default function AdminPage() {
                                 aria-label={supplier.managerName}
                               />
                             ) : (
-                              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-blue-600 text-xs font-semibold text-white">
+                              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-blue-600 text-xs font-semibold text-on-accent">
                                 {getInitials(supplier.managerName || "М")}
                               </div>
                             )}
@@ -4382,7 +4066,7 @@ export default function AdminPage() {
                       <button
                         onClick={() => void confirmReviewItem()}
                         disabled={saving}
-                        className="h-11 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                        className="h-11 rounded-md bg-blue-600 px-4 text-sm font-semibold text-on-accent hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
                       >
                         {saving ? "Сохраняю..." : "Подтвердить и дальше"}
                       </button>
@@ -4560,7 +4244,7 @@ export default function AdminPage() {
                     onClick={() => setActiveRequestStatus(filter.id)}
                     className={`rounded-md border px-3 py-2 text-left text-xs font-semibold transition ${
                       activeRequestStatus === filter.id
-                        ? "border-blue-600 bg-blue-600 text-white"
+                        ? "border-blue-600 bg-blue-600 text-on-accent"
                         : "border-neutral-200 bg-white text-neutral-600 hover:border-blue-200 hover:text-blue-700"
                     }`}
                     title={filter.hint}
@@ -4972,7 +4656,7 @@ export default function AdminPage() {
                       !learningSession?.gap ||
                       !learningAnswer.trim()
                     }
-                    className="mt-4 h-11 w-full rounded-md bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                    className="mt-4 h-11 w-full rounded-md bg-blue-600 px-4 text-sm font-semibold text-on-accent hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
                   >
                     {learningSaving ? "Сохраняю..." : "Сохранить объяснение"}
                   </button>
@@ -5043,6 +4727,97 @@ export default function AdminPage() {
                 </select>
               </div>
 
+              <div className="grid gap-3 border-b border-neutral-200 bg-white p-4 lg:grid-cols-[160px_180px_1fr_220px]">
+                <label className="text-sm">
+                  <span className="mb-1 block text-xs font-medium text-neutral-500">
+                    Количество
+                  </span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={25}
+                    value={aiTestCount}
+                    onChange={(e) =>
+                      setAiTestCount(
+                        Math.max(1, Math.min(25, Number(e.target.value) || 1))
+                      )
+                    }
+                    className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                  />
+                </label>
+
+                <label className="text-sm">
+                  <span className="mb-1 block text-xs font-medium text-neutral-500">
+                    Сложность
+                  </span>
+                  <select
+                    value={aiTestDifficulty}
+                    onChange={(e) =>
+                      setAiTestDifficulty(e.target.value as AiTestDifficulty)
+                    }
+                    className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                  >
+                    <option value="basic">Базовая</option>
+                    <option value="medium">Средняя</option>
+                    <option value="hard">Сложная</option>
+                  </select>
+                </label>
+
+                <div>
+                  <div className="mb-1 text-xs font-medium text-neutral-500">
+                    Типы вопросов
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {AI_TEST_GENERATION_MODE_OPTIONS.map((mode) => (
+                      <label
+                        key={mode.id}
+                        className="flex items-center gap-2 rounded-md border border-neutral-200 px-2 py-2 text-xs text-neutral-700"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={aiTestGenerationModes.includes(mode.id)}
+                          onChange={(e) => {
+                            setAiTestGenerationModes((current) => {
+                              if (e.target.checked) {
+                                return Array.from(new Set([...current, mode.id]));
+                              }
+
+                              const next = current.filter(
+                                (item) => item !== mode.id
+                              );
+
+                              return next.length > 0 ? next : current;
+                            });
+                          }}
+                        />
+                        {mode.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-end">
+                  <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-1">
+                    <button
+                      onClick={() => void generateAiTests()}
+                      disabled={aiTestsLoading}
+                      className="h-10 w-full rounded-md bg-neutral-900 px-3 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-60"
+                    >
+                      {aiTestsLoading
+                        ? "Генерирую..."
+                        : "Сгенерировать из базы"}
+                    </button>
+                    <button
+                      onClick={() => void runAiTests()}
+                      disabled={aiTestsLoading || aiTests.length === 0}
+                      className="h-10 w-full rounded-md border border-blue-300 bg-blue-50 px-3 text-sm font-medium text-blue-800 hover:bg-blue-100 disabled:opacity-60"
+                    >
+                      Запустить первые 5
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               {aiTestMessage && (
                 <div className="border-b border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
                   {aiTestMessage}
@@ -5052,6 +4827,35 @@ export default function AdminPage() {
               <div className="divide-y divide-neutral-200">
                 {aiTests.map((testCase) => (
                   <article key={testCase.id} className="p-4">
+                    {(() => {
+                      const result = aiTestResults[testCase.id];
+
+                      return result ? (
+                        <div
+                          className={`mb-3 rounded-md border px-3 py-2 text-xs ${
+                            result.status === "pass"
+                              ? "border-green-200 bg-green-50 text-green-800"
+                              : result.status === "fail"
+                                ? "border-red-200 bg-red-50 text-red-800"
+                                : "border-amber-200 bg-amber-50 text-amber-800"
+                          }`}
+                        >
+                          <div className="font-semibold">
+                            {result.status.toUpperCase()} · Источник:{" "}
+                            {result.source ?? "нет"} · {result.durationMs ?? 0}
+                            ms
+                          </div>
+                          {result.reasons.length > 0 && (
+                            <div className="mt-1">
+                              Причины: {result.reasons.join("; ")}
+                            </div>
+                          )}
+                          <div className="mt-2 line-clamp-3 text-neutral-700">
+                            {result.answer}
+                          </div>
+                        </div>
+                      ) : null;
+                    })()}
                     <div className="mb-2 flex flex-wrap items-center gap-2">
                       <span className="rounded-md bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600">
                         {testCase.id}
@@ -5069,6 +4873,14 @@ export default function AdminPage() {
                     <h3 className="text-sm font-semibold text-neutral-900">
                       {testCase.sanitizedQuery}
                     </h3>
+                    {(testCase.sourceKnowledgeTitle ||
+                      testCase.sourceKnowledgeId) && (
+                      <p className="mt-2 text-xs text-neutral-500">
+                        Источник:{" "}
+                        {testCase.sourceKnowledgeTitle ??
+                          testCase.sourceKnowledgeId}
+                      </p>
+                    )}
                     {(testCase.tags ?? []).length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-1">
                         {(testCase.tags ?? []).map((tag) => (
@@ -5356,8 +5168,8 @@ export default function AdminPage() {
             </section>
           </>
         ) : null}
-        </section>
-      </div>
-    </main>
+        </ModuleFrame>
+      ) : null}
+    </div>
   );
 }

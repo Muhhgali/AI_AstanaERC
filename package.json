@@ -25,6 +25,7 @@
     "eval:multi-turn:build": "tsx scripts/buildMultiTurnEval.ts",
     "eval:multi-turn": "tsx scripts/evaluateMultiTurn.ts",
     "knowledge:backlog": "tsx scripts/buildKnowledgeBacklog.ts",
+    "reset-test-history": "tsx scripts/resetTestHistory.ts",
     "admin:grant": "tsx scripts/grantAdmin.ts",
     "test": "vitest",
     "test:run": "vitest run",
