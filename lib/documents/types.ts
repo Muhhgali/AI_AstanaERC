@@ -40,8 +40,11 @@ export type ReceiptLineItem = {
   supplier?: string;
   service?: string;
   amount?: number;
-  debt?: number;
+  previousBalance?: number;
   payment?: number;
+  currentCharge?: number;
+  amountDue?: number;
+  debt?: number;
   raw: string;
 };
 
@@ -75,15 +78,20 @@ export type EpdReceiptAnalysis = {
   address?: string;
   payerName?: string;
   previousBalance?: number;
+  balanceDate?: string;
   chargesAmount?: number;
+  chargePeriod?: string;
   paymentsShown?: number;
   debtAmount?: number;
   overpaymentAmount?: number;
   totalDue?: number;
   amountDue?: number;
+  carriedDebtAmount?: number;
+  calculatedAmountDue?: number;
   suppliers: string[];
   services: string[];
   lineItems: ReceiptLineItem[];
+  calculationNotes?: string[];
   missingFields: string[];
   warnings: string[];
 };
@@ -139,6 +147,9 @@ export type ReconciliationSignal = {
     | "amount_only"
     | "partial_payment"
     | "over_payment"
+    | "carried_debt"
+    | "epd_internal_payment"
+    | "settled_previous_period"
     | "recipient_match"
     | "recipient_missing"
     | "date_available"

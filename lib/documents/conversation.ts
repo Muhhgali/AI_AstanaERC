@@ -77,7 +77,11 @@ function answerFromEpd(question: string, epd: EpdReceiptAnalysis) {
     return [
       epd.debtAmount !== undefined ? `Долг/задолженность в ЕПД: ${money(epd.debtAmount)}.` : null,
       epd.previousBalance !== undefined ? `Предыдущее сальдо: ${money(epd.previousBalance)}.` : null,
+      epd.paymentsShown !== undefined ? `Оплаты, показанные в ЕПД: ${money(epd.paymentsShown)}.` : null,
+      epd.carriedDebtAmount !== undefined ? `Перенесённый остаток после оплат: ${money(epd.carriedDebtAmount)}.` : null,
+      epd.chargesAmount !== undefined ? `Новое начисление: ${money(epd.chargesAmount)}.` : null,
       epd.amountDue !== undefined ? `К оплате/итого: ${money(epd.amountDue)}.` : null,
+      ...(epd.calculationNotes ?? []),
       epd.debtAmount === undefined && epd.previousBalance === undefined && epd.amountDue === undefined
         ? "В ЕПД не найдено отдельное поле долга/сальдо/к оплате."
         : null,
@@ -91,7 +95,21 @@ function answerFromEpd(question: string, epd: EpdReceiptAnalysis) {
       epd.paymentsShown !== undefined
         ? `В самом ЕПД найдено поле оплат: ${money(epd.paymentsShown)}.`
         : "В ЕПД не найдено отдельное поле оплат.",
+      epd.carriedDebtAmount !== undefined
+        ? `Остаток после предыдущего сальдо и оплат: ${money(epd.carriedDebtAmount)}.`
+        : null,
+      ...(epd.calculationNotes ?? []),
       "Если нужно проверить банковский чек, загрузите его вместе с ЕПД. Чек банка сам по себе не доказывает, что ЕРЦ уже учёл оплату.",
+    ].join("\n");
+  }
+
+  if (
+    hasAny(normalized, ["домофон", "не приш", "нет строк", "аннулир", "обнул"])
+  ) {
+    return [
+      "Если по услуге были оплаты за прошлый период и они полностью закрыли сальдо, долг по этой строке может обнулиться.",
+      "Это не означает автоматическую переплату: если оплачено ровно сколько нужно, строка закрывается без дополнительной суммы к оплате.",
+      "Чтобы проверить конкретную услугу, нужны строка ЕПД и чеки оплат за прошлый период.",
     ].join("\n");
   }
 

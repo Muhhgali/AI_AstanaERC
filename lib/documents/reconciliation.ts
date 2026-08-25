@@ -235,6 +235,26 @@ export function analyzeDocumentSet(
     missingEvidence.push("сумма к оплате/долг в ЕПД");
   }
 
+  if (epd?.carriedDebtAmount !== undefined && epd.carriedDebtAmount > 0) {
+    pushSignal(signals, {
+      type: "carried_debt",
+      severity: "warning",
+      message: `В ЕПД виден перенос остатка прошлого периода после оплат: ${money(
+        epd.carriedDebtAmount
+      )}. Поэтому итог может состоять из старого остатка плюс новое начисление.`,
+    });
+  }
+
+  if (epd?.paymentsShown !== undefined) {
+    pushSignal(signals, {
+      type: "epd_internal_payment",
+      severity: "info",
+      message: `В самом ЕПД уже отражены оплаты: ${money(
+        epd.paymentsShown
+      )}. Их нужно учитывать отдельно от банковских чеков, чтобы не посчитать оплату дважды.`,
+    });
+  }
+
   const relationship = chooseRelationship({ signals, epd, payments });
 
   return {

@@ -147,15 +147,110 @@ function extractLineItems(text: string): ReceiptLineItem[] {
         return items;
       }
 
+      const decimalValues = Array.from(
+        raw.matchAll(/-?\d[\d\s]*[,.]\d{1,3}/g)
+      )
+        .map((match) => normalizeNumber(match[0]))
+        .filter((item): item is number => item !== undefined);
+      const looksLikeEpdRow = decimalValues.length >= 4;
+      const effectiveAmount = looksLikeEpdRow
+        ? decimalValues[decimalValues.length - 1]
+        : amount;
+      const firstDecimalIndex = raw.search(/-?\d[\d\s]*[,.]\d{1,3}/);
+      const service = firstDecimalIndex > 0
+        ? raw.slice(0, firstDecimalIndex).trim()
+        : raw.replace(/-?\d[\d\s]*[,.]\d{1,2}\s*(?:₸|тг|kzt)?\s*$/i, "").trim();
+
       items.push({
         raw,
-        amount,
-        service: raw.replace(/-?\d[\d\s]*[,.]\d{1,2}\s*(?:₸|тг|kzt)?\s*$/i, "").trim(),
+        amount: effectiveAmount,
+        previousBalance: looksLikeEpdRow ? decimalValues[0] : undefined,
+        payment: looksLikeEpdRow ? decimalValues[1] : undefined,
+        currentCharge: looksLikeEpdRow
+          ? decimalValues[decimalValues.length - 2]
+          : undefined,
+        amountDue: looksLikeEpdRow
+          ? decimalValues[decimalValues.length - 1]
+          : effectiveAmount,
+        service,
       });
 
       return items;
     }, [])
     .slice(0, 30);
+}
+
+function sumDefined(values: Array<number | undefined>) {
+  const defined = values.filter((value): value is number => value !== undefined);
+
+  if (defined.length === 0) {
+    return undefined;
+  }
+
+  return Number(defined.reduce((sum, value) => sum + value, 0).toFixed(2));
+}
+
+function buildEpdCalculationNotes(params: {
+  balanceDate?: string;
+  chargePeriod?: string;
+  previousBalance?: number;
+  paymentsShown?: number;
+  carriedDebtAmount?: number;
+  lineItems: ReceiptLineItem[];
+}) {
+  const notes: string[] = [];
+
+  if (params.balanceDate) {
+    notes.push(
+      `Колонка «Сальдо на ${params.balanceDate}» показывает остаток с прошлого расчётного периода.`
+    );
+  }
+
+  if (params.chargePeriod) {
+    notes.push(
+      `Колонка «Начислено за ${params.chargePeriod}» показывает новое начисление за указанный месяц.`
+    );
+  }
+
+  if (
+    params.previousBalance !== undefined &&
+    params.paymentsShown !== undefined &&
+    params.carriedDebtAmount !== undefined
+  ) {
+    notes.push(
+      params.carriedDebtAmount > 0
+        ? "Оплата меньше предыдущего сальдо, поэтому остаток переносится в текущий ЕПД вместе с новым начислением."
+        : "Оплата покрывает предыдущее сальдо; если нового долга нет, переплата автоматически не придумывается."
+    );
+  }
+
+  if (
+    params.lineItems.some(
+      (item) =>
+        item.previousBalance !== undefined &&
+        item.payment !== undefined &&
+        item.previousBalance > item.payment + 1
+    )
+  ) {
+    notes.push(
+      "По строкам ЕПД видно неполное закрытие прошлого периода: часть сальдо переносится в сумму к оплате."
+    );
+  }
+
+  if (
+    params.lineItems.some(
+      (item) =>
+        item.previousBalance !== undefined &&
+        item.payment !== undefined &&
+        item.payment >= item.previousBalance - 1
+    )
+  ) {
+    notes.push(
+      "Если по услуге прошлое сальдо закрыто оплатами, строка может не давать дополнительного долга; это не означает автоматическую переплату."
+    );
+  }
+
+  return notes;
 }
 
 function extractionConfidence(found: unknown[], total: number) {
@@ -192,10 +287,18 @@ export function extractEpdReceiptAnalysis(text: string): EpdReceiptAnalysis {
     ])
   );
   const previousBalance = numberMatch(compact, [
+    /(?:сальдо\s*на\s*\d{2}[./-]\d{2}[./-]20\d{2})\s*[:\-]?\s*(-?\d[\d\s]*[,.]\d{1,2})/i,
     /(?:входящее\s*сальдо|сальдо\s*на\s*начало|предыдущее\s*сальдо|предыдущий\s*долг)\s*[:\-]?\s*(-?\d[\d\s]*[,.]\d{1,2})/i,
   ]);
+  const balanceDate = firstMatch(compact, [
+    /(?:сальдо\s*на)\s*(\d{2}[./-]\d{2}[./-]20\d{2})/i,
+  ]);
   const chargesAmount = numberMatch(compact, [
+    /(?:начислено\s*за\s*(?:0[1-9]|1[0-2])[./-]20\d{2})\s*[:\-]?\s*(-?\d[\d\s]*[,.]\d{1,2})/i,
     /(?:начислено|начисления)\s*[:\-]?\s*(-?\d[\d\s]*[,.]\d{1,2})/i,
+  ]);
+  const chargePeriod = firstMatch(compact, [
+    /(?:начислено\s*за)\s*((?:0[1-9]|1[0-2])[./-]20\d{2})/i,
   ]);
   const paymentsShown = numberMatch(compact, [
     /(?:оплачено|оплата|платежи|платежи\s*учтены|платежи\s*за\s*период)\s*[:\-]?\s*(-?\d[\d\s]*[,.]\d{1,2})/i,
@@ -212,6 +315,27 @@ export function extractEpdReceiptAnalysis(text: string): EpdReceiptAnalysis {
   ]);
   const suppliers = extractSuppliers(text);
   const lineItems = extractLineItems(text);
+  const linePreviousBalance = sumDefined(
+    lineItems.map((item) => item.previousBalance)
+  );
+  const linePayments = sumDefined(lineItems.map((item) => item.payment));
+  const lineCharges = sumDefined(lineItems.map((item) => item.currentCharge));
+  const lineAmountDue = sumDefined(lineItems.map((item) => item.amountDue));
+  const effectivePreviousBalance = previousBalance ?? linePreviousBalance;
+  const effectivePaymentsShown = paymentsShown ?? linePayments;
+  const effectiveChargesAmount = chargesAmount ?? lineCharges;
+  const carriedDebtAmount =
+    effectivePreviousBalance !== undefined && effectivePaymentsShown !== undefined
+      ? Number(
+          Math.max(effectivePreviousBalance - effectivePaymentsShown, 0).toFixed(
+            2
+          )
+        )
+      : undefined;
+  const calculatedAmountDue =
+    carriedDebtAmount !== undefined && effectiveChargesAmount !== undefined
+      ? Number((carriedDebtAmount + effectiveChargesAmount).toFixed(2))
+      : undefined;
   const services = Array.from(
     new Set(
       lineItems
@@ -219,7 +343,15 @@ export function extractEpdReceiptAnalysis(text: string): EpdReceiptAnalysis {
         .filter((item): item is string => Boolean(item && item.length >= 3))
     )
   ).slice(0, 12);
-  const amountDue = totalDue ?? debtAmount;
+  const amountDue = totalDue ?? debtAmount ?? lineAmountDue;
+  const calculationNotes = buildEpdCalculationNotes({
+    balanceDate,
+    chargePeriod,
+    previousBalance: effectivePreviousBalance,
+    paymentsShown: effectivePaymentsShown,
+    carriedDebtAmount,
+    lineItems,
+  });
   const missingFields = [
     accountNumber ? null : "accountNumber",
     period ? null : "period",
@@ -238,16 +370,21 @@ export function extractEpdReceiptAnalysis(text: string): EpdReceiptAnalysis {
     accountNumber,
     address,
     payerName,
-    previousBalance,
-    chargesAmount,
-    paymentsShown,
+    previousBalance: effectivePreviousBalance,
+    balanceDate,
+    chargesAmount: effectiveChargesAmount,
+    chargePeriod,
+    paymentsShown: effectivePaymentsShown,
     debtAmount,
     overpaymentAmount,
     totalDue,
     amountDue,
+    carriedDebtAmount,
+    calculatedAmountDue,
     suppliers,
     services,
     lineItems,
+    calculationNotes,
     missingFields,
     warnings,
   };
@@ -435,6 +572,8 @@ export function buildReceiptSummary(
       result.accountNumber ? `Лицевой счёт: ${result.accountNumber}.` : "Лицевой счёт: не найден.",
       result.amountDue !== undefined ? `К оплате/долг: ${money(result.amountDue)}.` : "К оплате/долг: не найден.",
       result.paymentsShown !== undefined ? `Оплаты, показанные в ЕПД: ${money(result.paymentsShown)}.` : null,
+      result.carriedDebtAmount !== undefined ? `Остаток после сальдо и оплат: ${money(result.carriedDebtAmount)}.` : null,
+      ...(result.calculationNotes ?? []),
       result.suppliers.length ? `Поставщики/строки: ${result.suppliers.slice(0, 5).join("; ")}.` : "Поставщики: не удалось надёжно выделить.",
       "",
       "Можно загрузить банковский чек и спросить: «Почему долг, если оплатил?» — я сравню документы между собой.",

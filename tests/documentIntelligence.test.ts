@@ -57,6 +57,17 @@ Halyk Homebank
 Reference: HKB-777888
 `;
 
+const epdSaldoText = `
+ЕПД
+Лицевой счёт: 000000000
+Расчетный период: март 2026
+Сальдо на 31.01.2026 Оплата Начислено за 02.2026 К оплате
+Электроэнергия Астана-РЭК 11070.25 5554.08 9237.830 9928.600 691 25.57 17666.38 23182.55
+Водоснабжение 647.71 804.06 150.000 155.000 5 92.53 462.65 306.30
+Домофон 600.00 600.00 0.00 0.00
+Итого к оплате: 23488.85
+`;
+
 function doc(
   id: string,
   structured: EpdReceiptAnalysis | BankPaymentReceiptAnalysis,
@@ -243,5 +254,29 @@ describe("document intelligence", () => {
     expect(analysis.signals.some((signal) => signal.type === "partial_payment")).toBe(
       true
     );
+  });
+
+  it("understands EPD saldo, shown payment, current charge and carried debt", () => {
+    const result = extractEpdReceiptAnalysis(epdSaldoText);
+
+    expect(result.balanceDate).toBe("31.01.2026");
+    expect(result.chargePeriod).toBe("02.2026");
+    expect(result.lineItems[0]?.previousBalance).toBe(11070.25);
+    expect(result.lineItems[0]?.payment).toBe(5554.08);
+    expect(result.lineItems[0]?.currentCharge).toBe(17666.38);
+    expect(result.lineItems[0]?.amountDue).toBe(23182.55);
+    expect(result.carriedDebtAmount).toBeGreaterThan(0);
+    expect(result.calculationNotes?.join(" ")).toContain("остаток");
+  });
+
+  it("explains that a fully paid previous service line may be closed without overpayment", () => {
+    const document = doc("epd-saldo", extractEpdReceiptAnalysis(epdSaldoText));
+    const answer = buildDocumentGroundedAnswer({
+      question: "Почему домофон не пришел, он аннулировался?",
+      document,
+    });
+
+    expect(answer).toContain("обнулиться");
+    expect(answer).toContain("не означает автоматическую переплату");
   });
 });
