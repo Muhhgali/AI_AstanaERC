@@ -46,6 +46,8 @@ export function isDocumentFollowUpQuestion(question: string) {
     "долг",
     "задолж",
     "сальдо",
+    "переплат",
+    "транзит",
     "период",
     "месяц",
     "строк",
@@ -79,6 +81,7 @@ function answerFromEpd(question: string, epd: EpdReceiptAnalysis) {
       epd.previousBalance !== undefined ? `Предыдущее сальдо: ${money(epd.previousBalance)}.` : null,
       epd.paymentsShown !== undefined ? `Оплаты, показанные в ЕПД: ${money(epd.paymentsShown)}.` : null,
       epd.carriedDebtAmount !== undefined ? `Перенесённый остаток после оплат: ${money(epd.carriedDebtAmount)}.` : null,
+      epd.deferredOverpaymentAmount !== undefined ? `Переплата/излишек после закрытия сальдо: ${money(epd.deferredOverpaymentAmount)}.` : null,
       epd.chargesAmount !== undefined ? `Новое начисление: ${money(epd.chargesAmount)}.` : null,
       epd.amountDue !== undefined ? `К оплате/итого: ${money(epd.amountDue)}.` : null,
       ...(epd.calculationNotes ?? []),
@@ -98,8 +101,24 @@ function answerFromEpd(question: string, epd: EpdReceiptAnalysis) {
       epd.carriedDebtAmount !== undefined
         ? `Остаток после предыдущего сальдо и оплат: ${money(epd.carriedDebtAmount)}.`
         : null,
+      epd.deferredOverpaymentAmount !== undefined
+        ? `Оплата больше предыдущего сальдо на ${money(epd.deferredOverpaymentAmount)}. Этот излишек может храниться на транзитном счёте собственника и учитываться в следующем расчётном периоде.`
+        : null,
       ...(epd.calculationNotes ?? []),
       "Если нужно проверить банковский чек, загрузите его вместе с ЕПД. Чек банка сам по себе не доказывает, что ЕРЦ уже учёл оплату.",
+    ].join("\n");
+  }
+
+  if (
+    hasAny(normalized, ["переплат", "транзит", "больше чем сальдо", "следующ"])
+  ) {
+    return [
+      epd.deferredOverpaymentAmount !== undefined
+        ? `В ЕПД видна переплата/излишек после закрытия предыдущего сальдо: ${money(epd.deferredOverpaymentAmount)}.`
+        : "Если оплата больше предыдущего сальдо, это нужно трактовать как возможную переплату/излишек, а не как ошибку начисления.",
+      "Такие деньги могут храниться на транзитных счетах собственника и учитываться в следующем расчётном периоде или по правилам конкретного поставщика.",
+      "Поэтому бот не должен самовольно вычитать переплату из всех текущих начислений. Главные ориентиры — колонка «К оплате», следующий ЕПД и внутренняя проверка зачисления.",
+      ...(epd.calculationNotes ?? []),
     ].join("\n");
   }
 
@@ -134,6 +153,7 @@ function answerFromEpd(question: string, epd: EpdReceiptAnalysis) {
           `Итого/к оплате в ЕПД: ${money(epd.amountDue)}.`,
           epd.chargesAmount !== undefined ? `Начислено: ${money(epd.chargesAmount)}.` : null,
           epd.paymentsShown !== undefined ? `Оплаты в ЕПД: ${money(epd.paymentsShown)}.` : null,
+          epd.deferredOverpaymentAmount !== undefined ? `Возможная переплата/излишек к учёту позже: ${money(epd.deferredOverpaymentAmount)}.` : null,
           epd.lineItems.length > 0
             ? "Найденные строки с суммами:\n" +
               epd.lineItems

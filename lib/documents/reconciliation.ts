@@ -245,6 +245,19 @@ export function analyzeDocumentSet(
     });
   }
 
+  if (
+    epd?.deferredOverpaymentAmount !== undefined &&
+    epd.deferredOverpaymentAmount > 0
+  ) {
+    pushSignal(signals, {
+      type: "deferred_overpayment",
+      severity: "info",
+      message: `В ЕПД видна оплата больше предыдущего сальдо: излишек ${money(
+        epd.deferredOverpaymentAmount
+      )} может храниться на транзитном счёте собственника и учитываться следующим расчётным периодом. Его нельзя автоматически вычитать из всех текущих начислений без проверки.`,
+    });
+  }
+
   if (epd?.paymentsShown !== undefined) {
     pushSignal(signals, {
       type: "epd_internal_payment",

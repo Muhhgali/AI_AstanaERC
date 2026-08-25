@@ -68,6 +68,17 @@ const epdSaldoText = `
 Итого к оплате: 23488.85
 `;
 
+const epdTransitOverpaymentText = `
+ЕПД
+Лицевой счёт: 000000000
+Расчетный период: апрель 2026
+Сальдо на 28.02.2026 Оплата Начислено за 03.2026 К оплате
+Электроэнергия Астана-РЭК 23182.55 34252.80 9928.600 10455.360 527 25.57 13473.49 2419.81
+Водоснабжение 306.30 954.01 155.000 159.000 4 92.53 370.12 0.00
+Домофон -600.00 1200.00 600.00 0.00
+Итого к оплате: 2419.81
+`;
+
 function doc(
   id: string,
   structured: EpdReceiptAnalysis | BankPaymentReceiptAnalysis,
@@ -278,5 +289,34 @@ describe("document intelligence", () => {
 
     expect(answer).toContain("обнулиться");
     expect(answer).toContain("не означает автоматическую переплату");
+  });
+
+  it("understands that overpayment above saldo may be deferred through transit accounts", () => {
+    const result = extractEpdReceiptAnalysis(epdTransitOverpaymentText);
+
+    expect(result.balanceDate).toBe("28.02.2026");
+    expect(result.chargePeriod).toBe("03.2026");
+    expect(result.lineItems[0]?.previousBalance).toBe(23182.55);
+    expect(result.lineItems[0]?.payment).toBe(34252.8);
+    expect(result.lineItems[0]?.excessPayment).toBe(11070.25);
+    expect(result.lineItems[0]?.currentCharge).toBe(13473.49);
+    expect(result.lineItems[0]?.amountDue).toBe(2419.81);
+    expect(result.deferredOverpaymentAmount).toBeGreaterThan(0);
+    expect(result.calculationNotes?.join(" ")).toContain("транзит");
+  });
+
+  it("explains transit overpayment without subtracting it from every current charge", () => {
+    const document = doc(
+      "epd-transit-overpayment",
+      extractEpdReceiptAnalysis(epdTransitOverpaymentText)
+    );
+    const answer = buildDocumentGroundedAnswer({
+      question: "Почему оплата больше чем сальдо, но начисления за 03.2026 есть?",
+      document,
+    });
+
+    expect(answer).toContain("транзит");
+    expect(answer).toContain("следующ");
+    expect(answer).toContain("нельзя самовольно вычитать");
   });
 });

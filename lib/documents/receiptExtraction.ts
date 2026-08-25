@@ -160,12 +160,19 @@ function extractLineItems(text: string): ReceiptLineItem[] {
       const service = firstDecimalIndex > 0
         ? raw.slice(0, firstDecimalIndex).trim()
         : raw.replace(/-?\d[\d\s]*[,.]\d{1,2}\s*(?:₸|тг|kzt)?\s*$/i, "").trim();
+      const previousBalance = looksLikeEpdRow ? decimalValues[0] : undefined;
+      const payment = looksLikeEpdRow ? decimalValues[1] : undefined;
+      const excessPayment =
+        previousBalance !== undefined && payment !== undefined && payment > previousBalance
+          ? Number((payment - previousBalance).toFixed(2))
+          : undefined;
 
       items.push({
         raw,
         amount: effectiveAmount,
-        previousBalance: looksLikeEpdRow ? decimalValues[0] : undefined,
-        payment: looksLikeEpdRow ? decimalValues[1] : undefined,
+        previousBalance,
+        payment,
+        excessPayment,
         currentCharge: looksLikeEpdRow
           ? decimalValues[decimalValues.length - 2]
           : undefined,
@@ -196,6 +203,7 @@ function buildEpdCalculationNotes(params: {
   previousBalance?: number;
   paymentsShown?: number;
   carriedDebtAmount?: number;
+  excessPaymentAmount?: number;
   lineItems: ReceiptLineItem[];
 }) {
   const notes: string[] = [];
@@ -220,7 +228,9 @@ function buildEpdCalculationNotes(params: {
     notes.push(
       params.carriedDebtAmount > 0
         ? "Оплата меньше предыдущего сальдо, поэтому остаток переносится в текущий ЕПД вместе с новым начислением."
-        : "Оплата покрывает предыдущее сальдо; если нового долга нет, переплата автоматически не придумывается."
+        : params.excessPaymentAmount !== undefined && params.excessPaymentAmount > 0
+          ? "Оплата больше предыдущего сальдо. Разница может храниться на транзитном счёте собственника и учитываться в следующем расчётном периоде, поэтому её нельзя самовольно вычитать из всех текущих начислений."
+          : "Оплата покрывает предыдущее сальдо; если нового долга нет, переплата автоматически не придумывается."
     );
   }
 
@@ -242,11 +252,25 @@ function buildEpdCalculationNotes(params: {
       (item) =>
         item.previousBalance !== undefined &&
         item.payment !== undefined &&
-        item.payment >= item.previousBalance - 1
+        item.payment >= item.previousBalance - 1 &&
+        item.payment <= item.previousBalance + 1
     )
   ) {
     notes.push(
       "Если по услуге прошлое сальдо закрыто оплатами, строка может не давать дополнительного долга; это не означает автоматическую переплату."
+    );
+  }
+
+  if (
+    params.lineItems.some(
+      (item) =>
+        item.previousBalance !== undefined &&
+        item.payment !== undefined &&
+        item.payment > item.previousBalance + 1
+    )
+  ) {
+    notes.push(
+      "Если оплата по строке больше сальдо, излишек может остаться на транзитном счёте собственника и быть учтён позже; ориентироваться нужно на итоговую колонку «К оплате» и следующий ЕПД."
     );
   }
 
@@ -332,8 +356,27 @@ export function extractEpdReceiptAnalysis(text: string): EpdReceiptAnalysis {
           )
         )
       : undefined;
+  const excessPaymentAmount =
+    effectivePreviousBalance !== undefined && effectivePaymentsShown !== undefined
+      ? Number(
+          Math.max(effectivePaymentsShown - effectivePreviousBalance, 0).toFixed(
+            2
+          )
+        )
+      : undefined;
+  const lineExcessPayment = sumDefined(
+    lineItems.map((item) => item.excessPayment)
+  );
+  const deferredOverpaymentAmount =
+    excessPaymentAmount && excessPaymentAmount > 0
+      ? excessPaymentAmount
+      : lineExcessPayment && lineExcessPayment > 0
+        ? lineExcessPayment
+        : undefined;
   const calculatedAmountDue =
-    carriedDebtAmount !== undefined && effectiveChargesAmount !== undefined
+    carriedDebtAmount !== undefined &&
+    effectiveChargesAmount !== undefined &&
+    !(excessPaymentAmount !== undefined && excessPaymentAmount > 0)
       ? Number((carriedDebtAmount + effectiveChargesAmount).toFixed(2))
       : undefined;
   const services = Array.from(
@@ -350,6 +393,7 @@ export function extractEpdReceiptAnalysis(text: string): EpdReceiptAnalysis {
     previousBalance: effectivePreviousBalance,
     paymentsShown: effectivePaymentsShown,
     carriedDebtAmount,
+    excessPaymentAmount: deferredOverpaymentAmount,
     lineItems,
   });
   const missingFields = [
@@ -380,6 +424,8 @@ export function extractEpdReceiptAnalysis(text: string): EpdReceiptAnalysis {
     totalDue,
     amountDue,
     carriedDebtAmount,
+    excessPaymentAmount,
+    deferredOverpaymentAmount,
     calculatedAmountDue,
     suppliers,
     services,
@@ -573,6 +619,7 @@ export function buildReceiptSummary(
       result.amountDue !== undefined ? `К оплате/долг: ${money(result.amountDue)}.` : "К оплате/долг: не найден.",
       result.paymentsShown !== undefined ? `Оплаты, показанные в ЕПД: ${money(result.paymentsShown)}.` : null,
       result.carriedDebtAmount !== undefined ? `Остаток после сальдо и оплат: ${money(result.carriedDebtAmount)}.` : null,
+      result.deferredOverpaymentAmount !== undefined ? `Переплата/излишек после сальдо: ${money(result.deferredOverpaymentAmount)}.` : null,
       ...(result.calculationNotes ?? []),
       result.suppliers.length ? `Поставщики/строки: ${result.suppliers.slice(0, 5).join("; ")}.` : "Поставщики: не удалось надёжно выделить.",
       "",

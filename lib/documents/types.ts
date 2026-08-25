@@ -42,6 +42,7 @@ export type ReceiptLineItem = {
   amount?: number;
   previousBalance?: number;
   payment?: number;
+  excessPayment?: number;
   currentCharge?: number;
   amountDue?: number;
   debt?: number;
@@ -87,6 +88,8 @@ export type EpdReceiptAnalysis = {
   totalDue?: number;
   amountDue?: number;
   carriedDebtAmount?: number;
+  excessPaymentAmount?: number;
+  deferredOverpaymentAmount?: number;
   calculatedAmountDue?: number;
   suppliers: string[];
   services: string[];
@@ -149,6 +152,7 @@ export type ReconciliationSignal = {
     | "over_payment"
     | "carried_debt"
     | "epd_internal_payment"
+    | "deferred_overpayment"
     | "settled_previous_period"
     | "recipient_match"
     | "recipient_missing"
