@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { DocumentFileKind } from "@/lib/documents/types";
 
-export const DOCUMENT_MAX_FILE_SIZE = 8 * 1024 * 1024;
+export const DOCUMENT_MAX_FILE_SIZE = 4 * 1024 * 1024;
 export const DOCUMENT_MAX_PAGES = 5;
 export const DOCUMENT_MAX_IMAGE_PIXELS = 32_000_000;
 export const DOCUMENT_STORAGE_BUCKET = "resident-documents";

@@ -69,6 +69,44 @@ const STORAGE_CONVERSATION_ID = "astana_erc_conversation_id";
 const STORAGE_CHAT_INDEX = "astana_erc_chat_index";
 const STORAGE_VISITOR_ID = "astana_erc_visitor_id";
 const STORAGE_LANGUAGE = "astana_erc_language";
+const DOCUMENT_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
+const DOCUMENT_UPLOAD_MAX_FILES = 4;
+
+type ReceiptUploadResponse = {
+  message?: string;
+  source?: string;
+  suggestedQuestions?: string[];
+  documentId?: string;
+  activeDocumentId?: string;
+  activeDocumentIds?: string[];
+  status?: string;
+};
+
+function formatUploadSize(size: number) {
+  return size < 1024 * 1024
+    ? `${Math.max(1, Math.round(size / 1024))} KB`
+    : `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+async function readJsonResponse<T extends { message?: string }>(
+  response: Response
+): Promise<T> {
+  const text = await response.text();
+
+  if (!text) {
+    return {} as T;
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    const fallback = text.trim().startsWith("<")
+      ? "Сервер вернул HTML-страницу ошибки вместо JSON. Чаще всего файл слишком большой или запрос был отклонён платформой."
+      : text.trim().slice(0, 240);
+
+    return { message: fallback || "Сервер вернул некорректный ответ." } as T;
+  }
+}
 
 const QUICK_GROUPS = [
   {
@@ -706,6 +744,7 @@ export default function Home() {
   const [panelLoading, setPanelLoading] = useState(false);
   const [panelError, setPanelError] = useState("");
   const [receiptUploading, setReceiptUploading] = useState(false);
+  const [pendingDocumentFiles, setPendingDocumentFiles] = useState<File[]>([]);
   const [activeDocumentId, setActiveDocumentId] = useState<string | undefined>();
   const [activeDocumentIds, setActiveDocumentIds] = useState<string[]>([]);
   const [voiceSupported, setVoiceSupported] = useState(false);
@@ -896,7 +935,18 @@ export default function Home() {
 
     // Input validation
     if (!content) {
-      return; // Silent return for empty input
+      if (pendingDocumentFiles.length > 0) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content:
+              "Файл прикреплён. Напишите ниже вопрос к документу и нажмите отправить.",
+            source: "document-attachment",
+          },
+        ]);
+      }
+      return;
     }
 
     if (content.length > 5000) {
@@ -913,17 +963,25 @@ export default function Home() {
       return;
     }
 
-    if (loading) return;
+    if (loading || receiptUploading) return;
+
+    const filesToUpload = pendingDocumentFiles;
+    const messageContent = filesToUpload.length
+      ? `${content}\n\nПрикреплено: ${filesToUpload
+          .map((file) => file.name)
+          .join(", ")}`
+      : content;
 
     const userMessage = {
       role: "user",
-      content,
+      content: messageContent,
     } satisfies ChatMessage;
 
     const updated = [...messages, userMessage];
 
     setMessages(updated);
     setInput("");
+    setPendingDocumentFiles([]);
     setLoading(true);
 
     if (textareaRef.current) {
@@ -931,6 +989,32 @@ export default function Home() {
     }
 
     try {
+      let documentIdsForRequest = activeDocumentIds;
+      let documentIdForRequest = activeDocumentId;
+
+      if (filesToUpload.length > 0) {
+        setReceiptUploading(true);
+        const uploadedIds: string[] = [];
+
+        for (const file of filesToUpload) {
+          const upload = await uploadReceiptFile(file);
+          const nextId = upload.activeDocumentId ?? upload.documentId;
+
+          if (nextId) {
+            uploadedIds.push(nextId);
+          }
+        }
+
+        documentIdsForRequest = Array.from(
+          new Set([...activeDocumentIds, ...uploadedIds].filter(Boolean))
+        ).slice(-8);
+        documentIdForRequest =
+          documentIdsForRequest[documentIdsForRequest.length - 1] ??
+          activeDocumentId;
+        setActiveDocumentId(documentIdForRequest);
+        setActiveDocumentIds(documentIdsForRequest);
+      }
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
@@ -942,8 +1026,8 @@ export default function Home() {
         body: JSON.stringify({
           conversationId,
           visitorId,
-          activeDocumentId,
-          activeDocumentIds,
+          activeDocumentId: documentIdForRequest,
+          activeDocumentIds: documentIdsForRequest,
           language,
           messages: updated.map(({ role, content }) => ({
             role,
@@ -955,7 +1039,7 @@ export default function Home() {
 
       clearTimeout(timeoutId);
 
-      const data = (await res.json()) as ChatResponse;
+      const data = await readJsonResponse<ChatResponse>(res);
 
       if (!res.ok) {
         const errorMessage = data.message || "Не удалось получить ответ.";
@@ -985,6 +1069,9 @@ export default function Home() {
       setMessages((prev) => [...prev, botMessage]);
     } catch (error) {
       console.error("CHAT ERROR:", error);
+      if (filesToUpload.length > 0) {
+        setPendingDocumentFiles(filesToUpload);
+      }
       
       let errorMessage = "Не получилось получить ответ. Проверь подключение и попробуй еще раз.";
       
@@ -1010,6 +1097,7 @@ export default function Home() {
       ]);
     } finally {
       setLoading(false);
+      setReceiptUploading(false);
     }
   };
 
@@ -1435,96 +1523,67 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
-  const analyzeReceiptFile = async (file: File) => {
-    if (receiptUploading) {
+  async function uploadReceiptFile(file: File) {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("language", language);
+    if (conversationId) {
+      formData.append("conversationId", conversationId);
+    }
+    if (visitorId) {
+      formData.append("visitorId", visitorId);
+    }
+
+    const res = await fetch("/api/receipts/analyze", {
+      method: "POST",
+      body: formData,
+    });
+    const data = await readJsonResponse<ReceiptUploadResponse>(res);
+
+    if (!res.ok) {
+      throw new Error(
+        data.message ??
+          (language === "kk"
+            ? "Файлды тексеру мүмкін болмады."
+            : "Не удалось проверить файл.")
+      );
+    }
+
+    return data;
+  }
+
+  const queueReceiptFiles = (fileList: FileList | null) => {
+    const files = Array.from(fileList ?? []);
+
+    if (receiptInputRef.current) {
+      receiptInputRef.current.value = "";
+    }
+
+    if (files.length === 0) {
       return;
     }
 
-    const userMessage = {
-      role: "user",
-      content:
-        language === "kk"
-          ? `Түбіртек жүктелді: ${file.name}`
-          : `Загружена квитанция: ${file.name}`,
-    } satisfies ChatMessage;
+    const oversized = files.find((file) => file.size > DOCUMENT_UPLOAD_MAX_BYTES);
 
-    setMessages((prev) => [...prev, userMessage]);
-    setReceiptUploading(true);
-
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("language", language);
-      if (conversationId) {
-        formData.append("conversationId", conversationId);
-      }
-      if (visitorId) {
-        formData.append("visitorId", visitorId);
-      }
-
-      const res = await fetch("/api/receipts/analyze", {
-        method: "POST",
-        body: formData,
-      });
-      const data = (await res.json()) as {
-        message?: string;
-        source?: string;
-        suggestedQuestions?: string[];
-        documentId?: string;
-        activeDocumentId?: string;
-        activeDocumentIds?: string[];
-        status?: string;
-      };
-
-      if (!res.ok) {
-        throw new Error(
-          data.message ??
-            (language === "kk"
-              ? "Файлды тексеру мүмкін болмады."
-              : "Не удалось проверить файл.")
-        );
-      }
-
-      if (data.activeDocumentId || data.documentId) {
-        const nextId = data.activeDocumentId ?? data.documentId;
-        setActiveDocumentId(nextId);
-        setActiveDocumentIds((prev) =>
-          Array.from(new Set([...prev, ...(data.activeDocumentIds ?? []), nextId].filter(Boolean) as string[])).slice(-8)
-        );
-      }
-
+    if (oversized) {
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content: data.message ?? "",
-          source: data.source ?? "receipt-analysis",
-          suggestedQuestions: data.suggestedQuestions,
-          activeDocumentId: data.activeDocumentId ?? data.documentId,
-          activeDocumentIds: data.activeDocumentIds,
-          documentStatus: data.status,
-        },
-      ]);
-    } catch (error) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content:
-            error instanceof Error
-              ? error.message
-              : language === "kk"
-                ? "Файлды тексеру мүмкін болмады."
-                : "Не удалось проверить файл.",
+          content: `Файл "${oversized.name}" слишком большой: ${formatUploadSize(
+            oversized.size
+          )}. Максимум ${formatUploadSize(
+            DOCUMENT_UPLOAD_MAX_BYTES
+          )}. Сожмите PDF/фото или загрузите файл меньшего размера.`,
           source: "error",
         },
       ]);
-    } finally {
-      setReceiptUploading(false);
-      if (receiptInputRef.current) {
-        receiptInputRef.current.value = "";
-      }
+      return;
     }
+
+    setPendingDocumentFiles((prev) =>
+      [...prev, ...files].slice(-DOCUMENT_UPLOAD_MAX_FILES)
+    );
   };
 
   const toggleSpeakMessage = (text: string, index: number) => {
@@ -2337,17 +2396,41 @@ export default function Home() {
             )}
 
             <div className="shrink-0 border-t border-neutral-200 bg-white/95 px-3 py-3 backdrop-blur sm:px-4">
+              {pendingDocumentFiles.length > 0 && (
+                <div className="mx-auto mb-2 flex max-w-3xl flex-wrap gap-2">
+                  {pendingDocumentFiles.map((file, index) => (
+                    <button
+                      key={`${file.name}-${file.size}-${index}`}
+                      type="button"
+                      onClick={() =>
+                        setPendingDocumentFiles((prev) =>
+                          prev.filter((_, fileIndex) => fileIndex !== index)
+                        )
+                      }
+                      className="inline-flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800 transition hover:bg-blue-100"
+                      title="Убрать прикреплённый файл"
+                    >
+                      <span className="max-w-56 truncate">{file.name}</span>
+                      <span className="text-blue-500">
+                        {formatUploadSize(file.size)}
+                      </span>
+                      <X size={14} />
+                    </button>
+                  ))}
+                  <span className="self-center text-xs text-neutral-500">
+                    Напишите вопрос ниже и отправьте — документы уйдут вместе с ним.
+                  </span>
+                </div>
+              )}
               <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border border-neutral-200 bg-white p-2 shadow-sm transition focus-within:border-blue-500 focus-within:shadow-lg focus-within:shadow-blue-900/10">
                 <input
                   ref={receiptInputRef}
                   type="file"
                   accept="application/pdf,image/png,image/jpeg"
+                  multiple
                   className="hidden"
                   onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) {
-                      void analyzeReceiptFile(file);
-                    }
+                    queueReceiptFiles(event.target.files);
                   }}
                 />
                 <button
