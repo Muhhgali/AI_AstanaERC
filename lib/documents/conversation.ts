@@ -219,7 +219,7 @@ export function buildDocumentGroundedAnswer(params: {
   }
 
   if (document.status === "ocr_required") {
-    return "По этому документу пока нельзя отвечать: нужен OCR/vision для скана или изображения. Я не буду угадывать данные.";
+    return "По этому документу пока нельзя отвечать: OCR/vision не смог распознать текст. Загрузите текстовый PDF или более чёткое фото.";
   }
 
   if (document.status !== "ready") {

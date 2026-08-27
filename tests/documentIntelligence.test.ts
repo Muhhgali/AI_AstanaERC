@@ -237,7 +237,7 @@ describe("document intelligence", () => {
     expect(answer).toContain("только по данным");
   });
 
-  it("does not answer scanned PDFs without OCR", () => {
+  it("does not answer scanned PDFs when OCR did not produce text", () => {
     const document: ResidentDocumentRecord = {
       id: "00000000-0000-4000-8000-000000000002",
       visitor_id: "visitor",
@@ -255,7 +255,7 @@ describe("document intelligence", () => {
         question: "Какая сумма?",
         document,
       })
-    ).toContain("OCR");
+    ).toMatch(/OCR|распознать/i);
   });
 
   it("builds a strong match from EPD + bank receipt when account and amount match", () => {

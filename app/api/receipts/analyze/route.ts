@@ -12,7 +12,7 @@ import {
   classifyDocument,
   extractReceiptStructuredData,
 } from "@/lib/documents/receiptExtraction";
-import { NativePdfExtractor, OcrExtractor } from "@/lib/documents/extraction";
+import { extractResidentDocumentText } from "@/lib/documents/extraction";
 import {
   createResidentDocument,
   isMissingDocumentsTable,
@@ -160,10 +160,11 @@ export async function POST(req: Request) {
       },
     });
 
-    const extraction =
-      validation.kind === "pdf"
-        ? await new NativePdfExtractor().extract(validation.bytes)
-        : await new OcrExtractor().extract();
+    const extraction = await extractResidentDocumentText({
+      bytes: validation.bytes,
+      contentType: validation.contentType,
+      fileName: typedFile.name,
+    });
 
     if (extraction.status === "failed") {
       await updateResidentDocument({
