@@ -278,6 +278,28 @@ export function buildDocumentGroundedAnswer(params: {
     .join("\n");
 }
 
+export function isDocumentSetReconciliationQuestion(question: string) {
+  const normalized = normalizeQuestion(question);
+
+  return hasAny(normalized, [
+    "почему долг",
+    "если оплатил",
+    "свер",
+    "сравн",
+    "совпад",
+    "учтён",
+    "учтен",
+    "оба документ",
+    "два документ",
+    "вместе",
+    "чек и епд",
+    "епд и чек",
+    "банковск",
+    "отразил",
+    "не отраж",
+  ]);
+}
+
 export function buildMultiDocumentGroundedAnswer(params: {
   question: string;
   documents: ResidentDocumentRecord[];
@@ -288,6 +310,53 @@ export function buildMultiDocumentGroundedAnswer(params: {
     return document
       ? buildDocumentGroundedAnswer({ question: params.question, document })
       : "Документ не найден в этой сессии.";
+  }
+
+  const ready = params.documents.filter((document) => document.status === "ready");
+  const epd = ready.find((document) =>
+    document.structured_result
+      ? isEpd(document.structured_result)
+      : false
+  );
+  const bank = ready.find((document) =>
+    document.structured_result
+      ? isBank(document.structured_result)
+      : false
+  );
+  const normalized = normalizeQuestion(params.question);
+  const wantsReconciliation =
+    isDocumentSetReconciliationQuestion(params.question) ||
+    Boolean(
+      epd &&
+        bank &&
+        hasAny(normalized, ["долг", "оплат", "сумм", "итого", "сальдо", "задолж"])
+    );
+
+  if (wantsReconciliation) {
+    return buildDocumentSetAnswer(params);
+  }
+
+  if (
+    bank &&
+    hasAny(normalized, ["чек", "банк", "kaspi", "halyk", "транзак", "комисс"])
+  ) {
+    const answer = buildDocumentGroundedAnswer({
+      question: params.question,
+      document: bank,
+    });
+    return epd
+      ? `${answer}\n\nТакже загружен ЕПД — могу сравнить оплату с начислениями, если спросите «почему долг, если оплатил?»`
+      : answer;
+  }
+
+  if (epd) {
+    const answer = buildDocumentGroundedAnswer({
+      question: params.question,
+      document: epd,
+    });
+    return bank
+      ? `${answer}\n\nТакже загружен банковский чек — могу сверить документы по запросу.`
+      : answer;
   }
 
   return buildDocumentSetAnswer(params);

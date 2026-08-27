@@ -105,6 +105,16 @@ function getVisionOcrModel() {
   return process.env.OPENAI_ANALYSIS_MODEL ?? "gpt-4.1";
 }
 
+function getVisionOcrDetail(): "low" | "high" | "auto" {
+  const value = process.env.OPENAI_OCR_IMAGE_DETAIL?.trim().toLowerCase();
+
+  if (value === "low" || value === "high" || value === "auto") {
+    return value;
+  }
+
+  return "high";
+}
+
 function getVisionOcrClient(): VisionOcrClient | null {
   if (openaiClientFactory) {
     openaiClient ??= openaiClientFactory();
@@ -289,7 +299,7 @@ export class OcrExtractor implements OcrDocumentExtractor {
         | { type: "input_file"; file_id: string }
         | {
             type: "input_image";
-            detail: "high";
+            detail: "low" | "high" | "auto" | "original";
             image_url: string;
           }
       > = [{ type: "input_text", text: OCR_USER_PROMPT }];
@@ -306,7 +316,7 @@ export class OcrExtractor implements OcrDocumentExtractor {
       } else {
         content.push({
           type: "input_image",
-          detail: "high",
+          detail: getVisionOcrDetail(),
           image_url: `data:${request.contentType};base64,${bytesToBase64(request.bytes)}`,
         });
       }
@@ -367,13 +377,36 @@ export class OcrExtractor implements OcrDocumentExtractor {
 }
 
 export async function extractResidentDocumentText(
-  request: DocumentExtractRequest
+  request: DocumentExtractRequest,
+  options?: {
+    allowOcr?: () => boolean;
+  }
 ): Promise<DocumentExtractionResult> {
+  const denyOcrResult = (
+    pageCount: number,
+    warnings: string[]
+  ): DocumentExtractionResult => ({
+    status: "ocr_required",
+    method: "none",
+    text: "",
+    pageCount,
+    warnings: [
+      ...warnings,
+      "OCR/vision skipped: rate limit or policy blocked the request.",
+    ],
+  });
+
   if (request.contentType === "application/pdf") {
     const native = await new NativePdfExtractor().extract(request.bytes);
 
     if (native.status !== "ocr_required") {
       return native;
+    }
+
+    if (options?.allowOcr && !options.allowOcr()) {
+      return denyOcrResult(native.pageCount || request.pageCountHint || 0, [
+        ...native.warnings,
+      ]);
     }
 
     const ocr = await new OcrExtractor().extract({
@@ -401,6 +434,10 @@ export async function extractResidentDocumentText(
       pageCount: native.pageCount || ocr.pageCount,
       warnings: [...native.warnings, ...ocr.warnings],
     };
+  }
+
+  if (options?.allowOcr && !options.allowOcr()) {
+    return denyOcrResult(request.pageCountHint ?? 1, []);
   }
 
   return new OcrExtractor().extract({

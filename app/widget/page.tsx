@@ -69,6 +69,21 @@ type ReceiptUploadResponse = {
   activeDocumentId?: string;
   activeDocumentIds?: string[];
   status?: string;
+  documentType?: string;
+  extractionMethod?: string;
+  structuredResult?: Record<string, unknown>;
+  setupRequired?: boolean;
+  warnings?: string[];
+};
+
+type EphemeralDocumentContextState = {
+  clientId: string;
+  fileName: string;
+  documentType: string;
+  extractionMethod: string;
+  structuredResult: Record<string, unknown>;
+  status?: string;
+  warnings?: string[];
 };
 
 function formatUploadSize(size: number) {
@@ -579,6 +594,9 @@ export default function WidgetPage() {
   const [pendingDocumentFiles, setPendingDocumentFiles] = useState<File[]>([]);
   const [activeDocumentId, setActiveDocumentId] = useState<string | undefined>();
   const [activeDocumentIds, setActiveDocumentIds] = useState<string[]>([]);
+  const [documentContexts, setDocumentContexts] = useState<
+    EphemeralDocumentContextState[]
+  >([]);
   const [voiceSupported, setVoiceSupported] = useState(false);
   const [speakingMessageIndex, setSpeakingMessageIndex] = useState<
     number | null
@@ -778,17 +796,44 @@ export default function WidgetPage() {
     try {
       let documentIdsForRequest = activeDocumentIds;
       let documentIdForRequest = activeDocumentId;
+      let contextsForRequest = documentContexts;
 
       if (filesToUpload.length > 0) {
         setReceiptUploading(true);
         const uploadedIds: string[] = [];
+        const nextContexts: EphemeralDocumentContextState[] = [];
+        const analysisMessages: ChatMessage[] = [];
 
-        for (const file of filesToUpload) {
+        for (const [index, file] of filesToUpload.entries()) {
           const upload = await uploadReceiptFile(file);
           const nextId = upload.activeDocumentId ?? upload.documentId;
 
           if (nextId) {
             uploadedIds.push(nextId);
+          }
+
+          if (upload.structuredResult && upload.status === "ready") {
+            nextContexts.push({
+              clientId: nextId ?? `ephemeral-${Date.now()}-${index}`,
+              fileName: file.name,
+              documentType: upload.documentType ?? "unknown",
+              extractionMethod: upload.extractionMethod ?? "none",
+              structuredResult: upload.structuredResult,
+              status: upload.status,
+              warnings: upload.warnings,
+            });
+          }
+
+          if (upload.message) {
+            analysisMessages.push({
+              role: "assistant",
+              content: upload.message,
+              source:
+                upload.source === "document-analysis-ephemeral"
+                  ? "document-analysis-ephemeral"
+                  : "document-analysis",
+              suggestedQuestions: upload.suggestedQuestions,
+            });
           }
         }
 
@@ -800,6 +845,15 @@ export default function WidgetPage() {
           activeDocumentId;
         setActiveDocumentId(documentIdForRequest);
         setActiveDocumentIds(documentIdsForRequest);
+
+        if (nextContexts.length > 0) {
+          contextsForRequest = [...documentContexts, ...nextContexts].slice(-4);
+          setDocumentContexts(contextsForRequest);
+        }
+
+        if (analysisMessages.length > 0) {
+          setMessages((prev) => [...prev, ...analysisMessages]);
+        }
       }
 
       const res = await fetch("/api/chat", {
@@ -812,6 +866,7 @@ export default function WidgetPage() {
           visitorId,
           activeDocumentId: documentIdForRequest,
           activeDocumentIds: documentIdsForRequest,
+          documentContexts: contextsForRequest,
           language,
           messages: updated.map(({ role, content }) => ({
             role,
@@ -1986,6 +2041,7 @@ export default function WidgetPage() {
               onClick={() => {
                 setActiveDocumentId(undefined);
                 setActiveDocumentIds([]);
+                setDocumentContexts([]);
               }}
               className="hidden shrink-0 rounded-xl border border-amber-200 bg-amber-50 px-2 py-2 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 sm:block"
               title="Убрать документы из текущего анализа"

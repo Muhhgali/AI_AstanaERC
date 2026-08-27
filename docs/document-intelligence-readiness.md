@@ -1,28 +1,35 @@
 # Document Intelligence — план до полной готовности
 
-## Part 1 (эта ветка) — чтение документов
+## Part 1 — чтение документов ✅
 
-Цель: бот умеет разобрать ЕПД/чек и ответить на вопрос по полям.
+- OCR/vision для сканов PDF и JPG/PNG
+- Ephemeral-анализ без таблицы
+- Фикстуры + `npm run smoke:documents`
+- Фикс периода и составных вопросов
 
-Сделано:
+## Part 2 — persistence + сверка + UX (этот этап)
 
-1. OCR/vision для сканов PDF и JPG/PNG через OpenAI.
-2. Текстовый PDF — по-прежнему `pdf-parse` без OpenAI.
-3. Ephemeral-анализ: если миграция `resident_documents` ещё не применена, файл всё равно разбирается и возвращается summary (без follow-up в чате).
-4. Миграция обновлена под `epd_receipt` / `bank_payment_receipt` / `vision`.
-5. Анонимные фикстуры + `scripts/smokeDocumentIntelligence.ts`.
+Сделано в коде:
 
-Проверка:
+1. **Ephemeral follow-up в чате** — клиент держит `documentContexts` и шлёт в `/api/chat`, даже без `resident_documents`.
+2. **Умная сверка ЕПД + чек** — reconciliation при вопросах про долг/оплату/сверку; иначе ответ по релевантному документу.
+3. **OCR cost control** — отдельный лимит `documentOcr` (4 / 10 мин); `OPENAI_OCR_IMAGE_DETAIL` (`low`|`high`|`auto`).
+4. **Миграция** обновлена под `vision` / `epd_receipt` / `bank_payment_receipt`.
+5. UI показывает summary разбора сразу после upload.
 
-```bash
-npx tsx scripts/smokeDocumentIntelligence.ts
-```
+### Owner checklist (нужны ваши доступы)
 
-## Part 2 (следующий этап) — production persistence
+1. Supabase SQL Editor → выполнить  
+   `supabase/migrations/20260813002000_document_intelligence.sql`
+2. Проверить bucket `resident-documents` = **private**
+3. Vercel / Cursor Secrets:
+   - `OPENAI_API_KEY`
+   - опционально `OPENAI_ANALYSIS_MODEL=gpt-4.1`
+   - опционально `OPENAI_OCR_IMAGE_DETAIL=high`
+4. Redeploy preview/production
+5. Smoke:
+   - текстовый ЕПД PDF → вопрос про период/сумму
+   - фото Kaspi → OCR → сумма/л/с
+   - ЕПД + чек → «почему долг, если оплатил?»
 
-1. Применить `supabase/migrations/20260813002000_document_intelligence.sql` (таблица + bucket).
-2. Проверить RLS и private bucket `resident-documents`.
-3. Задеплоить ветку с OCR на production/preview.
-4. Live E2E: upload PDF + фото → follow-up в `/api/chat`.
-5. Сверка ЕПД + банковский чек (`reconciliation`) на реальных анонимных образцах владельца.
-6. Стоимость/лимиты OCR и мониторинг ошибок vision.
+Пока миграция не применена: разбор и follow-up работают через ephemeral contexts (без долгого хранения файла в Storage).

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from "@supabase/supabase-js";
 import { getSupabaseProjectUrl } from "@/lib/supabaseEnv";
-import { enforceRateLimit, RATE_LIMIT_POLICIES } from "@/lib/rateLimit";
+import { enforceRateLimit, consumeRateLimit, RATE_LIMIT_POLICIES } from "@/lib/rateLimit";
 import {
   getOrCreateVisitorOwnership,
   getOwnedConversationId,
@@ -199,11 +199,19 @@ export async function POST(req: Request) {
       });
     }
 
-    const extraction = await extractResidentDocumentText({
-      bytes: validation.bytes,
-      contentType: validation.contentType,
-      fileName: typedFile.name,
-    });
+    const extraction = await extractResidentDocumentText(
+      {
+        bytes: validation.bytes,
+        contentType: validation.contentType,
+        fileName: typedFile.name,
+      },
+      {
+        allowOcr: () => {
+          const ocrLimit = consumeRateLimit(req, RATE_LIMIT_POLICIES.documentOcr);
+          return "bypassed" in ocrLimit || ocrLimit.allowed;
+        },
+      }
+    );
 
     if (extraction.status === "failed") {
       if (persistenceAvailable && documentId) {
