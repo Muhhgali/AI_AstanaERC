@@ -271,6 +271,7 @@ describe("document intelligence", () => {
     expect(answer).toMatch(/1\s*200/);
   });
 
+  it("builds a strong match from EPD + bank receipt when account and amount match", () => {
     const analysis = analyzeDocumentSet([
       doc("epd", extractEpdReceiptAnalysis(epdText)),
       doc("kaspi", extractBankPaymentReceiptAnalysis(kaspiText)),
