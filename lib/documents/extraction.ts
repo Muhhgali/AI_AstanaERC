@@ -1,4 +1,3 @@
-import { PDFParse } from "pdf-parse";
 import { DOCUMENT_MAX_PAGES } from "@/lib/documents/validation";
 
 export type DocumentExtractionResult =
@@ -29,6 +28,48 @@ export interface DocumentTextExtractor {
   extract(bytes: Uint8Array): Promise<DocumentExtractionResult>;
 }
 
+type PdfParserInstance = {
+  getInfo(): Promise<{ total?: number }>;
+  getText(): Promise<{ text?: string }>;
+  destroy(): Promise<void>;
+};
+
+type PdfParserConstructor = new (options: { data: Uint8Array }) => PdfParserInstance;
+
+let pdfParserConstructor: PdfParserConstructor | null = null;
+
+async function ensurePdfRuntime() {
+  const globalScope = globalThis as unknown as Record<string, unknown>;
+
+  if (globalScope.DOMMatrix && globalScope.ImageData && globalScope.Path2D) {
+    return;
+  }
+
+  const canvas = await import("@napi-rs/canvas").catch(() => null);
+
+  if (!canvas) {
+    return;
+  }
+
+  globalScope.DOMMatrix ??= canvas.DOMMatrix;
+  globalScope.ImageData ??= canvas.ImageData;
+  globalScope.Path2D ??= canvas.Path2D;
+}
+
+async function getPdfParserConstructor() {
+  if (pdfParserConstructor) {
+    return pdfParserConstructor;
+  }
+
+  await ensurePdfRuntime();
+  const pdfParse = (await import("pdf-parse")) as {
+    PDFParse: PdfParserConstructor;
+  };
+  pdfParserConstructor = pdfParse.PDFParse;
+
+  return pdfParserConstructor;
+}
+
 function normalizeExtractedText(text: string) {
   return text.replace(/\u0000/g, "").replace(/[ \t]+/g, " ").trim();
 }
@@ -46,9 +87,11 @@ function isPasswordOrEncryptedError(error: unknown) {
 
 export class NativePdfExtractor implements DocumentTextExtractor {
   async extract(bytes: Uint8Array): Promise<DocumentExtractionResult> {
-    const parser = new PDFParse({ data: bytes });
+    let parser: PdfParserInstance | null = null;
 
     try {
+      const PDFParse = await getPdfParserConstructor();
+      parser = new PDFParse({ data: bytes });
       const info = await parser.getInfo();
       const pageCount = info.total ?? 0;
 
@@ -100,7 +143,7 @@ export class NativePdfExtractor implements DocumentTextExtractor {
           : "Не удалось прочитать PDF. Возможно, файл повреждён или имеет неподдерживаемый формат.",
       };
     } finally {
-      await parser.destroy().catch(() => undefined);
+      await parser?.destroy().catch(() => undefined);
     }
   }
 }
