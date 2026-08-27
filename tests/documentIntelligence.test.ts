@@ -258,7 +258,19 @@ describe("document intelligence", () => {
     ).toMatch(/OCR|распознать/i);
   });
 
-  it("builds a strong match from EPD + bank receipt when account and amount match", () => {
+  it("extracts a clean period and answers compound period+amount questions", () => {
+    const structured = extractEpdReceiptAnalysis(epdText);
+    expect(structured.period).toBe("июль 2026");
+
+    const answer = buildDocumentGroundedAnswer({
+      question: "Какой период указан и сколько итого к оплате?",
+      document: doc("epd-q", structured),
+    });
+
+    expect(answer).toContain("июль 2026");
+    expect(answer).toMatch(/1\s*200/);
+  });
+
     const analysis = analyzeDocumentSet([
       doc("epd", extractEpdReceiptAnalysis(epdText)),
       doc("kaspi", extractBankPaymentReceiptAnalysis(kaspiText)),

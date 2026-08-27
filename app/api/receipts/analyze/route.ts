@@ -21,6 +21,8 @@ import {
 } from "@/lib/documents/repository";
 import { validateResidentDocumentFile } from "@/lib/documents/validation";
 import type { ChatLanguage } from "@/lib/types";
+import type { DocumentExtractionResult } from "@/lib/documents/extraction";
+import type { ReceiptStructuredResult } from "@/lib/documents/types";
 
 let adminClient: ReturnType<typeof createClient<any>> | null = null;
 
@@ -82,6 +84,37 @@ async function saveLegacyReceiptRequest(params: {
   }
 }
 
+function buildAnalysisPayload(params: {
+  extraction: Extract<DocumentExtractionResult, { status: "ready" }>;
+  structured: ReceiptStructuredResult;
+  documentType: ReturnType<typeof classifyDocument>;
+  summary: string;
+  language: ChatLanguage;
+  documentId?: string;
+  setupRequired?: boolean;
+  setupNote?: string;
+}) {
+  const message = params.setupNote
+    ? `${params.summary}\n\n${params.setupNote}`
+    : params.summary;
+
+  return {
+    documentId: params.documentId,
+    activeDocumentId: params.documentId,
+    activeDocumentIds: params.documentId ? [params.documentId] : [],
+    message,
+    source: params.setupRequired
+      ? "document-analysis-ephemeral"
+      : "document-analysis",
+    status: "ready" as const,
+    documentType: params.documentType,
+    structuredResult: params.structured,
+    extractionMethod: params.extraction.method,
+    suggestedQuestions: suggestedQuestions(params.language),
+    setupRequired: params.setupRequired,
+  };
+}
+
 export async function POST(req: Request) {
   const visitorOwnership = getOrCreateVisitorOwnership(req);
   const jsonResponse = (body: unknown, init?: ResponseInit) =>
@@ -109,13 +142,22 @@ export async function POST(req: Request) {
   }
 
   const typedFile = file as File;
-  const conversationId = await getOwnedConversationId(
-    getAdminClient(),
-    formData.get("conversationId"),
-    visitorOwnership.visitorId
-  );
-
+  let conversationId: string | null = null;
   let documentId: string | undefined;
+  let persistenceAvailable = true;
+
+  try {
+    conversationId = await getOwnedConversationId(
+      getAdminClient(),
+      formData.get("conversationId"),
+      visitorOwnership.visitorId
+    );
+  } catch (error) {
+    if (!isMissingDocumentsTable(error)) {
+      // conversation lookup may fail for unrelated reasons; keep going for analysis
+      console.warn("CONVERSATION LOOKUP SKIPPED:", error);
+    }
+  }
 
   try {
     documentId = await createResidentDocument({
@@ -129,36 +171,33 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     if (isMissingDocumentsTable(error)) {
-      return jsonResponse({
-        message:
-          "Документ принят, но таблица resident_documents ещё не применена в Supabase. Нужно выполнить миграцию Document Intelligence.",
-        source: "document-setup-required",
-        setupRequired: true,
-      });
+      persistenceAvailable = false;
+    } else {
+      throw error;
     }
-
-    throw error;
   }
 
   try {
-    const storagePath = await uploadResidentDocumentFile({
-      supabase: getAdminClient(),
-      visitorId: visitorOwnership.visitorId,
-      documentId,
-      fileHash: validation.hash,
-      bytes: validation.bytes,
-      contentType: validation.contentType,
-      extension: validation.extension,
-    });
+    if (persistenceAvailable && documentId) {
+      const storagePath = await uploadResidentDocumentFile({
+        supabase: getAdminClient(),
+        visitorId: visitorOwnership.visitorId,
+        documentId,
+        fileHash: validation.hash,
+        bytes: validation.bytes,
+        contentType: validation.contentType,
+        extension: validation.extension,
+      });
 
-    await updateResidentDocument({
-      supabase: getAdminClient(),
-      documentId,
-      patch: {
-        storage_path: storagePath,
-        status: "extracting",
-      },
-    });
+      await updateResidentDocument({
+        supabase: getAdminClient(),
+        documentId,
+        patch: {
+          storage_path: storagePath,
+          status: "extracting",
+        },
+      });
+    }
 
     const extraction = await extractResidentDocumentText({
       bytes: validation.bytes,
@@ -167,17 +206,19 @@ export async function POST(req: Request) {
     });
 
     if (extraction.status === "failed") {
-      await updateResidentDocument({
-        supabase: getAdminClient(),
-        documentId,
-        patch: {
-          status: "failed",
-          extraction_method: extraction.method,
-          page_count: extraction.pageCount,
-          warnings: extraction.warnings,
-          error_message: extraction.errorMessage,
-        },
-      });
+      if (persistenceAvailable && documentId) {
+        await updateResidentDocument({
+          supabase: getAdminClient(),
+          documentId,
+          patch: {
+            status: "failed",
+            extraction_method: extraction.method,
+            page_count: extraction.pageCount,
+            warnings: extraction.warnings,
+            error_message: extraction.errorMessage,
+          },
+        });
+      }
 
       return jsonResponse(
         {
@@ -186,6 +227,7 @@ export async function POST(req: Request) {
           source: "document-analysis",
           status: "failed",
           suggestedQuestions: [],
+          setupRequired: !persistenceAvailable,
         },
         { status: 400 }
       );
@@ -201,26 +243,29 @@ export async function POST(req: Request) {
         "ocr_required"
       );
 
-      await updateResidentDocument({
-        supabase: getAdminClient(),
-        documentId,
-        patch: {
-          status: "ocr_required",
-          extraction_method: "none",
-          page_count: extraction.pageCount,
-          warnings: extraction.warnings,
-          error_message: "OCR_REQUIRED",
-        },
-      });
+      if (persistenceAvailable && documentId) {
+        await updateResidentDocument({
+          supabase: getAdminClient(),
+          documentId,
+          patch: {
+            status: "ocr_required",
+            extraction_method: "none",
+            page_count: extraction.pageCount,
+            warnings: extraction.warnings,
+            error_message: "OCR_REQUIRED",
+          },
+        });
+      }
 
       return jsonResponse({
         documentId,
         activeDocumentId: documentId,
-        activeDocumentIds: [documentId],
+        activeDocumentIds: documentId ? [documentId] : [],
         message: summary,
         source: "document-analysis",
         status: "ocr_required",
         suggestedQuestions: [],
+        setupRequired: !persistenceAvailable,
       });
     }
 
@@ -228,45 +273,50 @@ export async function POST(req: Request) {
     const documentType = classifyDocument(extraction.text);
     const summary = buildReceiptSummary(structured, "ready");
 
-    await updateResidentDocument({
-      supabase: getAdminClient(),
-      documentId,
-      patch: {
-        status: "ready",
-        document_type: documentType,
-        extraction_method: extraction.method,
-        page_count: extraction.pageCount,
-        extracted_text: extraction.text.slice(0, 30_000),
-        structured_result: structured,
-        warnings: [...extraction.warnings, ...structured.warnings],
-      },
-    });
+    if (persistenceAvailable && documentId) {
+      await updateResidentDocument({
+        supabase: getAdminClient(),
+        documentId,
+        patch: {
+          status: "ready",
+          document_type: documentType,
+          extraction_method: extraction.method,
+          page_count: extraction.pageCount,
+          extracted_text: extraction.text.slice(0, 30_000),
+          structured_result: structured,
+          warnings: [...extraction.warnings, ...structured.warnings],
+        },
+      });
 
-    await saveLegacyReceiptRequest({
-      conversationId,
-      visitorId: visitorOwnership.visitorId,
-      fileName: typedFile.name,
-      fileType: validation.contentType,
-      fileSize: typedFile.size,
-      summary,
-    });
+      await saveLegacyReceiptRequest({
+        conversationId,
+        visitorId: visitorOwnership.visitorId,
+        fileName: typedFile.name,
+        fileType: validation.contentType,
+        fileSize: typedFile.size,
+        summary,
+      });
+    }
 
-    return jsonResponse({
-      documentId,
-      activeDocumentId: documentId,
-      activeDocumentIds: [documentId],
-      message: summary,
-      source: "document-analysis",
-      status: "ready",
-      documentType,
-      structuredResult: structured,
-      suggestedQuestions: suggestedQuestions(language),
-    });
+    return jsonResponse(
+      buildAnalysisPayload({
+        extraction,
+        structured,
+        documentType,
+        summary,
+        language,
+        documentId,
+        setupRequired: !persistenceAvailable,
+        setupNote: !persistenceAvailable
+          ? "Документ разобран без сохранения: в Supabase ещё не применена миграция resident_documents. Follow-up по документу в чате будет доступен после миграции."
+          : undefined,
+      })
+    );
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Не удалось обработать документ.";
 
-    if (documentId) {
+    if (persistenceAvailable && documentId) {
       await updateResidentDocument({
         supabase: getAdminClient(),
         documentId,
