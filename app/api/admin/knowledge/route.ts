@@ -25,6 +25,16 @@ type KnowledgePayload = {
   metadata?: Record<string, unknown>;
 };
 
+type LegacyKnowledgeRow = {
+  id?: string;
+  title?: string | null;
+  category?: string | null;
+  content?: string | null;
+  priority?: number | null;
+  verified?: boolean | null;
+  source?: string | null;
+};
+
 let adminClient: ReturnType<typeof createClient<any>> | null = null;
 
 function getAdminClient() {
@@ -112,6 +122,31 @@ function legacySelectKnowledge() {
   return "id,title,category,content,priority,verified,source";
 }
 
+function decorateLegacyKnowledgeRow(row: LegacyKnowledgeRow) {
+  const verified = Boolean(row.verified);
+  const source = row.source ?? null;
+  const status: KnowledgeStatus = verified
+    ? "verified"
+    : source?.includes("review-seed")
+      ? "review"
+      : "draft";
+
+  return {
+    ...row,
+    language: "ru",
+    status,
+    verified,
+    metadata: {},
+    content_hash: null,
+    reviewed_at: null,
+    archived_at: null,
+  };
+}
+
+function decorateLegacyKnowledgeRows(rows: unknown) {
+  return ((rows ?? []) as LegacyKnowledgeRow[]).map(decorateLegacyKnowledgeRow);
+}
+
 async function buildRecord(
   payload: KnowledgePayload,
   previous?: {
@@ -192,7 +227,7 @@ export async function GET(req: Request) {
       .order("priority", { ascending: false })
       .order("title", { ascending: true });
 
-    data = fallback.data;
+    data = decorateLegacyKnowledgeRows(fallback.data) as unknown as typeof data;
     error = fallback.error;
   }
 
@@ -242,7 +277,9 @@ export async function POST(req: Request) {
         .select(legacySelectKnowledge())
         .single();
 
-      data = fallback.data;
+      data = (fallback.data
+        ? decorateLegacyKnowledgeRow(fallback.data as LegacyKnowledgeRow)
+        : fallback.data) as typeof data;
       error = fallback.error;
     }
 
@@ -323,7 +360,9 @@ export async function PATCH(req: Request) {
         .select(legacySelectKnowledge())
         .single();
 
-      data = fallback.data;
+      data = (fallback.data
+        ? decorateLegacyKnowledgeRow(fallback.data as LegacyKnowledgeRow)
+        : fallback.data) as typeof data;
       error = fallback.error;
     }
 

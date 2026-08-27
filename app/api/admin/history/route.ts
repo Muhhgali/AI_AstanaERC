@@ -34,6 +34,8 @@ type KnowledgeGap = {
   resolved_at: string | null;
 };
 
+const MAX_HISTORY_CONVERSATIONS = 500;
+
 let adminClient: ReturnType<typeof createClient<any>> | null = null;
 
 function getAdminClient() {
@@ -74,20 +76,35 @@ export async function GET(req: Request) {
   }
 
   const url = new URL(req.url);
-  const limit = Number(url.searchParams.get("limit") ?? 50);
+  const requestedLimit = Number(url.searchParams.get("limit") ?? 100);
+  const limit = Math.min(
+    Math.max(Number.isFinite(requestedLimit) ? requestedLimit : 100, 1),
+    MAX_HISTORY_CONVERSATIONS
+  );
+  const admin = getAdminClient();
 
-  const { data: conversations, error: conversationsError } =
-    await getAdminClient()
+  const {
+    data: conversations,
+    error: conversationsError,
+    count: totalConversations,
+  } = await admin
       .from("chat_conversations")
-      .select("id,title,created_at,updated_at")
+      .select("id,title,created_at,updated_at", { count: "exact" })
       .order("updated_at", { ascending: false })
-      .limit(Math.min(Math.max(limit, 1), 100));
+      .range(0, limit - 1);
 
   if (conversationsError) {
     if (isMissingHistoryTable(conversationsError)) {
       return Response.json({
         conversations: [],
         knowledgeGaps: [],
+        historyStats: {
+          totalConversations: 0,
+          loadedConversations: 0,
+          totalMessages: 0,
+          totalUserMessages: 0,
+          totalAssistantMessages: 0,
+        },
         gapSetupRequired: false,
         setupRequired: true,
         message:
@@ -101,7 +118,30 @@ export async function GET(req: Request) {
     );
   }
 
-  const { data: gaps, error: gapsError } = await getAdminClient()
+  const [messagesCount, userMessagesCount, assistantMessagesCount] =
+    await Promise.all([
+      admin.from("chat_messages").select("id", { count: "exact", head: true }),
+      admin
+        .from("chat_messages")
+        .select("id", { count: "exact", head: true })
+        .eq("role", "user"),
+      admin
+        .from("chat_messages")
+        .select("id", { count: "exact", head: true })
+        .eq("role", "assistant"),
+    ]);
+
+  const safeHistoryStats = {
+    totalConversations: totalConversations ?? conversations?.length ?? 0,
+    loadedConversations: conversations?.length ?? 0,
+    totalMessages: messagesCount.error ? null : messagesCount.count ?? 0,
+    totalUserMessages: userMessagesCount.error ? null : userMessagesCount.count ?? 0,
+    totalAssistantMessages: assistantMessagesCount.error
+      ? null
+      : assistantMessagesCount.count ?? 0,
+  };
+
+  const { data: gaps, error: gapsError } = await admin
     .from("knowledge_gaps")
     .select(
       "id,conversation_id,assistant_message_id,topic,user_question,assistant_answer,reason,status,top_similarity,created_at,resolved_at"
@@ -126,11 +166,12 @@ export async function GET(req: Request) {
     return Response.json({
       conversations: [],
       knowledgeGaps: safeGaps,
+      historyStats: safeHistoryStats,
       gapSetupRequired,
     });
   }
 
-  const { data: messages, error: messagesError } = await getAdminClient()
+  const { data: messages, error: messagesError } = await admin
     .from("chat_messages")
     .select("id,conversation_id,role,content,source,feedback,created_at")
     .in("conversation_id", ids)
@@ -144,6 +185,7 @@ export async function GET(req: Request) {
           messages: [],
         })),
         knowledgeGaps: safeGaps,
+        historyStats: safeHistoryStats,
         gapSetupRequired,
         setupRequired: true,
         message:
@@ -171,6 +213,7 @@ export async function GET(req: Request) {
       messages: grouped[conversation.id] ?? [],
     })),
     knowledgeGaps: safeGaps,
+    historyStats: safeHistoryStats,
     gapSetupRequired,
   });
 }

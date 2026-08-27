@@ -102,6 +102,14 @@ type HistoryConversation = {
   messages: HistoryMessage[];
 };
 
+type HistoryStats = {
+  totalConversations: number;
+  loadedConversations: number;
+  totalMessages: number | null;
+  totalUserMessages: number | null;
+  totalAssistantMessages: number | null;
+};
+
 type KnowledgeGap = {
   id: string;
   conversation_id: string | null;
@@ -586,6 +594,7 @@ export default function AdminPage() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [items, setItems] = useState<KnowledgeItem[]>([]);
   const [history, setHistory] = useState<HistoryConversation[]>([]);
+  const [historyStats, setHistoryStats] = useState<HistoryStats | null>(null);
   const [knowledgeGaps, setKnowledgeGaps] = useState<KnowledgeGap[]>([]);
   const [meterCorrections, setMeterCorrections] = useState<
     MeterCorrectionRequest[]
@@ -666,7 +675,7 @@ export default function AdminPage() {
   const [activeRequestStatus, setActiveRequestStatus] =
     useState<RequestStatusFilter>("open");
   const [activeHistoryFilter, setActiveHistoryFilter] =
-    useState<HistoryFilter>("needs_review");
+    useState<HistoryFilter>("all");
   const [reviewIndex, setReviewIndex] = useState(0);
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -806,9 +815,35 @@ export default function AdminPage() {
       const data = await apiRequest<{
         conversations: HistoryConversation[];
         knowledgeGaps?: KnowledgeGap[];
+        historyStats?: HistoryStats;
         gapSetupRequired?: boolean;
-      }>("/api/admin/history?limit=80");
+      }>("/api/admin/history?limit=500");
       setHistory(data.conversations);
+      setHistoryStats(
+        data.historyStats ?? {
+          totalConversations: data.conversations.length,
+          loadedConversations: data.conversations.length,
+          totalMessages: data.conversations.reduce(
+            (sum, conversation) => sum + conversation.messages.length,
+            0
+          ),
+          totalUserMessages: data.conversations.reduce(
+            (sum, conversation) =>
+              sum +
+              conversation.messages.filter((message) => message.role === "user")
+                .length,
+            0
+          ),
+          totalAssistantMessages: data.conversations.reduce(
+            (sum, conversation) =>
+              sum +
+              conversation.messages.filter(
+                (message) => message.role === "assistant"
+              ).length,
+            0
+          ),
+        }
+      );
       setKnowledgeGaps(data.knowledgeGaps ?? []);
       setGapSetupRequired(Boolean(data.gapSetupRequired));
     } catch (err) {
@@ -1496,6 +1531,37 @@ export default function AdminPage() {
       all: history,
     };
   }, [history]);
+
+  const localHistoryStats = useMemo<HistoryStats>(() => {
+    const totalMessages = history.reduce(
+      (sum, conversation) => sum + conversation.messages.length,
+      0
+    );
+    const totalUserMessages = history.reduce(
+      (sum, conversation) =>
+        sum +
+        conversation.messages.filter((message) => message.role === "user")
+          .length,
+      0
+    );
+    const totalAssistantMessages = history.reduce(
+      (sum, conversation) =>
+        sum +
+        conversation.messages.filter((message) => message.role === "assistant")
+          .length,
+      0
+    );
+
+    return {
+      totalConversations: history.length,
+      loadedConversations: history.length,
+      totalMessages,
+      totalUserMessages,
+      totalAssistantMessages,
+    };
+  }, [history]);
+
+  const resolvedHistoryStats = historyStats ?? localHistoryStats;
 
   const historyFilters: {
     id: HistoryFilter;
@@ -5006,6 +5072,19 @@ export default function AdminPage() {
                   <p className="mt-1 text-sm text-neutral-500">
                     Диалоги, оценки и источники ответов по категориям.
                   </p>
+                </div>
+                <div className="text-xs text-neutral-500 md:text-right">
+                  Показано {resolvedHistoryStats.loadedConversations} из{" "}
+                  {resolvedHistoryStats.totalConversations} диалогов
+                  {resolvedHistoryStats.totalUserMessages !== null
+                    ? ` · вопросов: ${resolvedHistoryStats.totalUserMessages}`
+                    : ""}
+                  {resolvedHistoryStats.totalAssistantMessages !== null
+                    ? ` · ответов: ${resolvedHistoryStats.totalAssistantMessages}`
+                    : ""}
+                  {resolvedHistoryStats.totalMessages !== null
+                    ? ` · сообщений: ${resolvedHistoryStats.totalMessages}`
+                    : ""}
                 </div>
                 <div className="flex gap-2">
                   <input
