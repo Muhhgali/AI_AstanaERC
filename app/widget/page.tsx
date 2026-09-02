@@ -8,8 +8,6 @@ import {
   Download,
   History,
   Languages,
-  Maximize2,
-  Minimize2,
   RefreshCw,
   Search,
   Square,
@@ -574,7 +572,6 @@ export default function WidgetPage() {
   );
   const [panelLoading, setPanelLoading] = useState(false);
   const [panelError, setPanelError] = useState("");
-  const [fullscreen, setFullscreen] = useState(false);
   const [receiptUploading, setReceiptUploading] = useState(false);
   const [pendingDocumentFiles, setPendingDocumentFiles] = useState<File[]>([]);
   const [activeDocumentId, setActiveDocumentId] = useState<string | undefined>();
@@ -1362,27 +1359,8 @@ export default function WidgetPage() {
     void sendMessage(text);
   };
 
-  const toggleFullscreen = () => {
-    setFullscreen((value) => {
-      const next = !value;
-      window.parent.postMessage(
-        { type: "ASTANA_ERC_WIDGET_FULLSCREEN", fullscreen: next },
-        "*"
-      );
-      return next;
-    });
-  };
-
-  const closeWidget = () => {
-    window.parent.postMessage({ type: "ASTANA_ERC_WIDGET_CLOSE" }, "*");
-  };
-
   return (
-    <main
-      className={`relative flex h-screen min-h-0 flex-col overflow-hidden bg-white text-neutral-950 ${
-        fullscreen ? "fixed inset-0 z-50" : ""
-      }`}
-    >
+    <main className="relative flex h-screen min-h-0 flex-col overflow-hidden bg-white text-neutral-950">
       <header className="flex items-center justify-between gap-3 border-b border-neutral-200 px-4 py-3">
         <div className="flex min-w-0 items-center gap-3">
           <BrandMark size="sm" />
@@ -1457,22 +1435,6 @@ export default function WidgetPage() {
             aria-label="Скачать диалог"
           >
             <Download size={15} />
-          </button>
-          <button
-            onClick={toggleFullscreen}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100"
-            title={fullscreen ? "Свернуть" : "На весь экран"}
-            aria-label={fullscreen ? "Свернуть" : "На весь экран"}
-          >
-            {fullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-          </button>
-          <button
-            onClick={closeWidget}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100"
-            title="Закрыть"
-            aria-label="Закрыть"
-          >
-            <X size={16} />
           </button>
         </div>
       </header>
@@ -2011,9 +1973,9 @@ export default function WidgetPage() {
                 void sendMessage();
               }
             }}
-            placeholder="Вопрос про оплату, квитанцию или показания"
+            placeholder="Напишите вопрос..."
             aria-label="Сообщение в чат"
-            className="max-h-28 min-h-11 flex-1 resize-none border-0 bg-transparent px-2 py-2.5 text-sm leading-5 outline-none placeholder:text-neutral-400"
+            className="max-h-28 min-h-11 min-w-0 flex-1 resize-none overflow-hidden border-0 bg-transparent px-2 py-2.5 text-sm leading-5 outline-none placeholder:text-neutral-400"
           />
           <button
             onClick={() => void sendMessage()}
