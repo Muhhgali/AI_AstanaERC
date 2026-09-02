@@ -1,9 +1,11 @@
-import { DOCUMENT_MAX_PAGES } from "@/lib/documents/validation";
+import OpenAI from "openai";
+import { DOCUMENT_MAX_PAGES } from "./validation";
+import type { DocumentExtractionMethod } from "./types";
 
 export type DocumentExtractionResult =
   | {
       status: "ready";
-      method: "native_pdf";
+      method: Exclude<DocumentExtractionMethod, "none">;
       text: string;
       pageCount: number;
       warnings: string[];
@@ -24,8 +26,19 @@ export type DocumentExtractionResult =
       errorMessage: string;
     };
 
+export type DocumentExtractRequest = {
+  bytes: Uint8Array;
+  contentType: "application/pdf" | "image/png" | "image/jpeg";
+  fileName?: string;
+  pageCountHint?: number;
+};
+
 export interface DocumentTextExtractor {
   extract(bytes: Uint8Array): Promise<DocumentExtractionResult>;
+}
+
+export interface OcrDocumentExtractor {
+  extract(request: DocumentExtractRequest): Promise<DocumentExtractionResult>;
 }
 
 type PdfParserInstance = {
@@ -36,7 +49,88 @@ type PdfParserInstance = {
 
 type PdfParserConstructor = new (options: { data: Uint8Array }) => PdfParserInstance;
 
+type VisionOcrClient = {
+  files: {
+    create: (body: {
+      file: File;
+      purpose: "user_data";
+    }) => Promise<{ id: string }>;
+    delete: (id: string) => Promise<unknown>;
+  };
+  responses: {
+    create: (body: {
+      model: string;
+      instructions: string;
+      input: Array<{
+        role: "user";
+        content: Array<
+          | { type: "input_text"; text: string }
+          | { type: "input_file"; file_id: string }
+          | {
+              type: "input_image";
+              detail: "low" | "high" | "auto" | "original";
+              image_url: string;
+            }
+        >;
+      }>;
+    }) => Promise<{ output_text?: string }>;
+  };
+};
+
+const MIN_USABLE_TEXT_LENGTH = 80;
+
+const OCR_INSTRUCTIONS = [
+  "Ты OCR-движок для квитанций Астана-ЕРЦ и банковских чеков.",
+  "Извлеки весь видимый текст документа дословно.",
+  "Сохраняй числа, даты, лицевые счета, суммы, статусы и названия поставщиков без изменений.",
+  "Не суммируй, не интерпретируй и не выдумывай отсутствующие поля.",
+  "Верни только распознанный текст, без markdown и без комментариев.",
+].join(" ");
+
+const OCR_USER_PROMPT =
+  "Извлеки весь видимый текст из этого документа дословно. Это ЕПД/квитанция или банковский чек.";
+
 let pdfParserConstructor: PdfParserConstructor | null = null;
+let openaiClient: VisionOcrClient | null = null;
+let openaiClientFactory: (() => VisionOcrClient) | null = null;
+
+export function setVisionOcrClientFactory(
+  factory: (() => VisionOcrClient) | null
+) {
+  openaiClientFactory = factory;
+  openaiClient = null;
+}
+
+function getVisionOcrModel() {
+  return process.env.OPENAI_ANALYSIS_MODEL ?? "gpt-4.1";
+}
+
+function getVisionOcrDetail(): "low" | "high" | "auto" {
+  const value = process.env.OPENAI_OCR_IMAGE_DETAIL?.trim().toLowerCase();
+
+  if (value === "low" || value === "high" || value === "auto") {
+    return value;
+  }
+
+  return "high";
+}
+
+function getVisionOcrClient(): VisionOcrClient | null {
+  if (openaiClientFactory) {
+    openaiClient ??= openaiClientFactory();
+    return openaiClient;
+  }
+
+  if (!process.env.OPENAI_API_KEY) {
+    return null;
+  }
+
+  openaiClient ??= new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  }) as unknown as VisionOcrClient;
+
+  return openaiClient;
+}
 
 async function ensurePdfRuntime() {
   const globalScope = globalThis as unknown as Record<string, unknown>;
@@ -85,6 +179,29 @@ function isPasswordOrEncryptedError(error: unknown) {
   );
 }
 
+function bytesToBase64(bytes: Uint8Array) {
+  return Buffer.from(bytes).toString("base64");
+}
+
+function defaultFileName(
+  contentType: DocumentExtractRequest["contentType"],
+  fileName?: string
+) {
+  if (fileName?.trim()) {
+    return fileName.trim();
+  }
+
+  if (contentType === "image/png") {
+    return "document.png";
+  }
+
+  if (contentType === "image/jpeg") {
+    return "document.jpg";
+  }
+
+  return "document.pdf";
+}
+
 export class NativePdfExtractor implements DocumentTextExtractor {
   async extract(bytes: Uint8Array): Promise<DocumentExtractionResult> {
     let parser: PdfParserInstance | null = null;
@@ -110,7 +227,7 @@ export class NativePdfExtractor implements DocumentTextExtractor {
       const text = normalizeExtractedText(result.text ?? "");
       const warnings: string[] = [];
 
-      if (text.length < 80) {
+      if (text.length < MIN_USABLE_TEXT_LENGTH) {
         warnings.push(
           "Native text extraction returned too little text; OCR is required."
         );
@@ -148,14 +265,183 @@ export class NativePdfExtractor implements DocumentTextExtractor {
   }
 }
 
-export class OcrExtractor implements DocumentTextExtractor {
-  async extract(): Promise<DocumentExtractionResult> {
+export class OcrExtractor implements OcrDocumentExtractor {
+  async extract(
+    request: DocumentExtractRequest
+  ): Promise<DocumentExtractionResult> {
+    const pageCount =
+      request.pageCountHint && request.pageCountHint > 0
+        ? request.pageCountHint
+        : request.contentType === "application/pdf"
+          ? 0
+          : 1;
+
+    const client = getVisionOcrClient();
+
+    if (!client) {
+      return {
+        status: "ocr_required",
+        method: "none",
+        text: "",
+        pageCount,
+        warnings: [
+          "OCR/vision provider is not configured. Set OPENAI_API_KEY to enable scan and image recognition.",
+        ],
+      };
+    }
+
+    const fileName = defaultFileName(request.contentType, request.fileName);
+    let uploadedFileId: string | null = null;
+
+    try {
+      const content: Array<
+        | { type: "input_text"; text: string }
+        | { type: "input_file"; file_id: string }
+        | {
+            type: "input_image";
+            detail: "low" | "high" | "auto" | "original";
+            image_url: string;
+          }
+      > = [{ type: "input_text", text: OCR_USER_PROMPT }];
+
+      if (request.contentType === "application/pdf") {
+        const uploaded = await client.files.create({
+          file: new File([Buffer.from(request.bytes)], fileName, {
+            type: "application/pdf",
+          }),
+          purpose: "user_data",
+        });
+        uploadedFileId = uploaded.id;
+        content.push({ type: "input_file", file_id: uploaded.id });
+      } else {
+        content.push({
+          type: "input_image",
+          detail: getVisionOcrDetail(),
+          image_url: `data:${request.contentType};base64,${bytesToBase64(request.bytes)}`,
+        });
+      }
+
+      const response = await client.responses.create({
+        model: getVisionOcrModel(),
+        instructions: OCR_INSTRUCTIONS,
+        input: [
+          {
+            role: "user",
+            content,
+          },
+        ],
+      });
+
+      const text = normalizeExtractedText(response.output_text ?? "");
+
+      if (text.length < MIN_USABLE_TEXT_LENGTH) {
+        return {
+          status: "failed",
+          method: "none",
+          text: "",
+          pageCount,
+          warnings: [
+            "Vision OCR returned too little text to structure the document.",
+          ],
+          errorMessage:
+            "Не удалось распознать текст на скане или изображении. Загрузите более чёткое фото или текстовый PDF.",
+        };
+      }
+
+      return {
+        status: "ready",
+        method: "vision",
+        text,
+        pageCount: pageCount || 1,
+        warnings: ["Text extracted via OpenAI vision OCR."],
+      };
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Vision OCR request failed.";
+
+      return {
+        status: "failed",
+        method: "none",
+        text: "",
+        pageCount,
+        warnings: [message],
+        errorMessage:
+          "Не удалось распознать документ через OCR/vision. Попробуйте ещё раз или загрузите текстовый PDF.",
+      };
+    } finally {
+      if (uploadedFileId && client) {
+        await client.files.delete(uploadedFileId).catch(() => undefined);
+      }
+    }
+  }
+}
+
+export async function extractResidentDocumentText(
+  request: DocumentExtractRequest,
+  options?: {
+    allowOcr?: () => boolean;
+  }
+): Promise<DocumentExtractionResult> {
+  const denyOcrResult = (
+    pageCount: number,
+    warnings: string[]
+  ): DocumentExtractionResult => ({
+    status: "ocr_required",
+    method: "none",
+    text: "",
+    pageCount,
+    warnings: [
+      ...warnings,
+      "OCR/vision skipped: rate limit or policy blocked the request.",
+    ],
+  });
+
+  if (request.contentType === "application/pdf") {
+    const native = await new NativePdfExtractor().extract(request.bytes);
+
+    if (native.status !== "ocr_required") {
+      return native;
+    }
+
+    if (options?.allowOcr && !options.allowOcr()) {
+      return denyOcrResult(native.pageCount || request.pageCountHint || 0, [
+        ...native.warnings,
+      ]);
+    }
+
+    const ocr = await new OcrExtractor().extract({
+      ...request,
+      pageCountHint: native.pageCount || request.pageCountHint,
+    });
+
+    if (ocr.status === "ready") {
+      return {
+        ...ocr,
+        warnings: [...native.warnings, ...ocr.warnings],
+      };
+    }
+
+    if (ocr.status === "ocr_required") {
+      return {
+        ...ocr,
+        pageCount: native.pageCount || ocr.pageCount,
+        warnings: [...native.warnings, ...ocr.warnings],
+      };
+    }
+
     return {
-      status: "ocr_required",
-      method: "none",
-      text: "",
-      pageCount: 0,
-      warnings: ["OCR provider is not configured for Stage 5 MVP."],
+      ...ocr,
+      pageCount: native.pageCount || ocr.pageCount,
+      warnings: [...native.warnings, ...ocr.warnings],
     };
   }
+
+  if (options?.allowOcr && !options.allowOcr()) {
+    return denyOcrResult(request.pageCountHint ?? 1, []);
+  }
+
+  return new OcrExtractor().extract({
+    ...request,
+    pageCountHint: request.pageCountHint ?? 1,
+  });
 }

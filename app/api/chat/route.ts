@@ -44,6 +44,10 @@ import {
 } from "@/lib/documents/conversation";
 import { loadOwnedResidentDocuments } from "@/lib/documents/repository";
 import {
+  ephemeralContextsToDocuments,
+  parseEphemeralDocumentContexts,
+} from "@/lib/documents/ephemeralContext";
+import {
   buildKnowledgeGapPriority,
   inferKnowledgeGapCategory,
   normalizeKnowledgeGapQuestion,
@@ -1985,6 +1989,9 @@ export async function POST(req: Request) {
       : activeDocumentId
         ? [activeDocumentId]
         : [];
+    const ephemeralDocuments = ephemeralContextsToDocuments(
+      parseEphemeralDocumentContexts(bodyObj?.documentContexts)
+    );
     const visitorId = visitorOwnership.visitorId;
 
     if (messages.length === 0) {
@@ -2023,15 +2030,20 @@ export async function POST(req: Request) {
     const userMessages = messages.filter((message) => message.role === "user");
 
     if (
-      activeDocumentIds.length > 0 &&
+      (activeDocumentIds.length > 0 || ephemeralDocuments.length > 0) &&
       !submittedMeterCorrection &&
       isDocumentFollowUpQuestion(lastMessage)
     ) {
-      const documents = await loadOwnedResidentDocuments({
-        supabase: getAdminSupabase(),
-        documentIds: activeDocumentIds,
-        visitorId,
-      });
+      const persistedDocuments =
+        activeDocumentIds.length > 0
+          ? await loadOwnedResidentDocuments({
+              supabase: getAdminSupabase(),
+              documentIds: activeDocumentIds,
+              visitorId,
+            })
+          : [];
+
+      const documents = [...persistedDocuments, ...ephemeralDocuments];
 
       if (documents.length === 0) {
         return jsonResponse(
