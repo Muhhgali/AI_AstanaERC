@@ -255,7 +255,7 @@ export default function WidgetPreviewPage() {
           className={
             widgetFullscreen
               ? "fixed inset-4 z-50 overflow-hidden rounded-lg border border-neutral-200/80 bg-white shadow-2xl shadow-blue-950/25"
-              : "fixed bottom-24 right-5 z-40 h-[640px] max-h-[calc(100vh-120px)] w-[390px] max-w-[calc(100vw-40px)] overflow-hidden rounded-lg border border-neutral-200/80 bg-white shadow-2xl shadow-blue-950/25"
+              : "fixed inset-x-3 bottom-20 z-40 h-[560px] max-h-[calc(100dvh-104px)] overflow-hidden rounded-lg border border-neutral-200/80 bg-white shadow-2xl shadow-blue-950/25 md:inset-x-auto md:bottom-24 md:right-5 md:h-[640px] md:max-h-[calc(100vh-120px)] md:w-[390px] md:max-w-[calc(100vw-40px)]"
           }
         >
           <iframe

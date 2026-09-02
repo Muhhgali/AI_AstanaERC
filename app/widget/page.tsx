@@ -227,10 +227,12 @@ function MeterCorrectionFormCard({
   form,
   disabled,
   onSubmit,
+  onCancel,
 }: {
   form: MeterCorrectionForm;
   disabled: boolean;
   onSubmit: (values: MeterCorrectionValues) => Promise<boolean>;
+  onCancel: () => void;
 }) {
   const [values, setValues] = useState<MeterCorrectionValues>({
     accountNumber: form.values?.accountNumber ?? "",
@@ -311,13 +313,24 @@ function MeterCorrectionFormCard({
           className="min-h-16 w-full resize-y rounded-md border border-neutral-300 bg-white px-2 py-2 text-xs outline-none focus:border-blue-600"
         />
       </div>
-      <button
-        onClick={() => void submit()}
-        disabled={disabled || submitted}
-        className="mt-2 h-9 w-full rounded-md bg-blue-600 px-3 text-xs font-semibold text-on-accent hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-300"
-      >
-        {submitted ? "Заявка отправлена" : "Отправить заявку"}
-      </button>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={disabled}
+          className="h-9 rounded-md border border-neutral-300 bg-white px-3 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          Назад в чат
+        </button>
+        <button
+          type="button"
+          onClick={() => void submit()}
+          disabled={disabled || submitted}
+          className="h-9 rounded-md bg-blue-600 px-3 text-xs font-semibold text-on-accent hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-300"
+        >
+          {submitted ? "Отправлено" : "Отправить"}
+        </button>
+      </div>
       {error && <p className="mt-1.5 text-xs text-red-600">{error}</p>}
     </div>
   );
@@ -355,9 +368,11 @@ function getNextWeekdayDates(weekday: number) {
 function AppealRequestFormCard({
   disabled,
   onSubmit,
+  onCancel,
 }: {
   disabled: boolean;
   onSubmit: (values: AppealRequestValues) => Promise<boolean>;
+  onCancel: () => void;
 }) {
   const [values, setValues] = useState<AppealRequestValues>({
     name: "",
@@ -423,13 +438,24 @@ function AppealRequestFormCard({
         }
         className="w-full rounded-md border border-dashed border-neutral-300 bg-white px-2 py-2 text-xs file:mr-2 file:rounded-md file:border-0 file:bg-blue-600 file:px-2 file:py-1.5 file:text-[11px] file:font-semibold file:text-on-accent"
       />
-      <button
-        onClick={() => void submit()}
-        disabled={disabled || submitted}
-        className="h-9 w-full rounded-md bg-emerald-600 px-3 text-xs font-semibold text-on-accent disabled:bg-neutral-300"
-      >
-        {submitted ? "Обращение отправлено" : "Отправить обращение"}
-      </button>
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={disabled}
+          className="h-9 rounded-md border border-neutral-300 bg-white px-3 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          Назад в чат
+        </button>
+        <button
+          type="button"
+          onClick={() => void submit()}
+          disabled={disabled || submitted}
+          className="h-9 rounded-md bg-emerald-600 px-3 text-xs font-semibold text-on-accent disabled:bg-neutral-300"
+        >
+          {submitted ? "Отправлено" : "Отправить"}
+        </button>
+      </div>
       {error && <p className="text-xs text-red-600">{error}</p>}
     </div>
   );
@@ -438,9 +464,11 @@ function AppealRequestFormCard({
 function AppointmentRequestFormCard({
   disabled,
   onSubmit,
+  onCancel,
 }: {
   disabled: boolean;
   onSubmit: (values: AppointmentRequestValues) => Promise<boolean>;
+  onCancel: () => void;
 }) {
   const [values, setValues] = useState<AppointmentRequestValues>({
     firstName: "",
@@ -535,13 +563,24 @@ function AppointmentRequestFormCard({
         placeholder="Email"
         className="h-9 w-full rounded-md border border-neutral-300 bg-white px-2 text-xs outline-none focus:border-violet-600"
       />
-      <button
-        onClick={() => void submit()}
-        disabled={disabled || submitted}
-        className="h-9 w-full rounded-md bg-violet-600 px-3 text-xs font-semibold text-on-accent disabled:bg-neutral-300"
-      >
-        {submitted ? "Заявка отправлена" : "Записаться на прием"}
-      </button>
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={disabled}
+          className="h-9 rounded-md border border-neutral-300 bg-white px-3 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          Назад в чат
+        </button>
+        <button
+          type="button"
+          onClick={() => void submit()}
+          disabled={disabled || submitted}
+          className="h-9 rounded-md bg-violet-600 px-3 text-xs font-semibold text-on-accent disabled:bg-neutral-300"
+        >
+          {submitted ? "Отправлено" : "Записаться"}
+        </button>
+      </div>
       {error && <p className="text-xs text-red-600">{error}</p>}
     </div>
   );
@@ -961,6 +1000,24 @@ export default function WidgetPage() {
         appointmentForm: true,
       },
     ]);
+  };
+
+  const dismissFormMessage = (index: number) => {
+    setMessages((prev) =>
+      prev.map((message, messageIndex) =>
+        messageIndex === index
+          ? {
+              ...message,
+              content:
+                "Ок, вернулся в чат. Напишите вопрос ниже — продолжим здесь.",
+              meterCorrectionForm: undefined,
+              appealForm: undefined,
+              appointmentForm: undefined,
+            }
+          : message
+      )
+    );
+    window.setTimeout(() => textareaRef.current?.focus(), 0);
   };
 
   const submitAppealRequest = async (values: AppealRequestValues) => {
@@ -1655,7 +1712,7 @@ export default function WidgetPage() {
                 } flex ${isUser ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[86%] text-sm leading-6 ${
+                  className={`max-w-[96%] text-sm leading-6 sm:max-w-[86%] ${
                     isUser
                       ? "rounded-2xl bg-blue-600 px-3 py-2 text-on-accent shadow-sm shadow-blue-900/10"
                       : "px-1 py-1 text-neutral-900"
@@ -1767,18 +1824,21 @@ export default function WidgetPage() {
                       form={message.meterCorrectionForm}
                       disabled={loading}
                       onSubmit={submitMeterCorrection}
+                      onCancel={() => dismissFormMessage(index)}
                     />
                   )}
                   {!isUser && message.appealForm && (
                     <AppealRequestFormCard
                       disabled={loading}
                       onSubmit={submitAppealRequest}
+                      onCancel={() => dismissFormMessage(index)}
                     />
                   )}
                   {!isUser && message.appointmentForm && (
                     <AppointmentRequestFormCard
                       disabled={loading}
                       onSubmit={submitAppointmentRequest}
+                      onCancel={() => dismissFormMessage(index)}
                     />
                   )}
                   {!isUser && message.suggestedQuestions?.length ? (

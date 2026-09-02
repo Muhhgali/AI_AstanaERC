@@ -47,7 +47,7 @@
     "width:min(390px,calc(100vw - 32px));height:min(620px,calc(100vh - 96px));border-radius:14px;overflow:hidden;background:#fff;box-shadow:0 24px 70px rgba(15,23,42,.28);border:1px solid rgba(15,23,42,.12);opacity:0;transform:translateY(12px) scale(.98);pointer-events:none;transition:opacity .18s ease,transform .18s ease}" +
     "#astana-erc-widget-root.astana-erc-widget-open>div{opacity:1;transform:translateY(0) scale(1);pointer-events:auto}" +
     "#astana-erc-widget-root iframe{display:block;width:100%;height:100%;border:0;background:#fff}" +
-    "@media(max-width:520px){#astana-erc-widget-root{left:12px;right:12px;bottom:12px}#astana-erc-widget-root>button{margin-left:auto}#astana-erc-widget-root>div{position:fixed;left:8px;right:8px;bottom:72px;width:auto;height:min(640px,calc(100vh - 88px));border-radius:12px}}";
+    "@media(max-width:520px){#astana-erc-widget-root{left:12px;right:12px;bottom:12px}#astana-erc-widget-root>button{margin-left:auto;height:52px;padding:0 16px}#astana-erc-widget-root>div{position:fixed;left:10px;right:10px;bottom:76px;width:auto;height:min(560px,calc(100dvh - 104px));max-height:calc(100vh - 104px);border-radius:14px}}";
   document.head.appendChild(style);
 
   function setOpen(open) {
