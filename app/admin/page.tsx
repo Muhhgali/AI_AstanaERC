@@ -1507,6 +1507,40 @@ export default function AdminPage() {
     query,
   ]);
 
+  const exportVerifiedFaq = useCallback(() => {
+    const escapeCsv = (value: string | number | null | undefined) => {
+      const text = String(value ?? "").replace(/\r?\n/g, "\n");
+      return `"${text.replace(/"/g, '""')}"`;
+    };
+    const verifiedItems = items
+      .filter((item) => getKnowledgeStatus(item) === "verified" || item.verified)
+      .slice()
+      .sort((left, right) => {
+        const priorityDifference = (right.priority ?? 0) - (left.priority ?? 0);
+        return priorityDifference || left.title.localeCompare(right.title, "ru");
+      });
+    const rows = [
+      ["Вопрос", "Ответ", "Категория", "Приоритет"],
+      ...verifiedItems.map((item) => [
+        item.title,
+        item.content,
+        getCategoryLabel(item.category),
+        item.priority ?? 0,
+      ]),
+    ];
+    const csv = rows.map((row) => row.map(escapeCsv).join(";")).join("\r\n");
+    const file = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(file);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = `astana-erc-faq-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }, [items]);
+
   const historyBuckets = useMemo(() => {
     const getBucket = (conversation: HistoryConversation): HistoryFilter => {
       const assistantMessages = conversation.messages.filter(
@@ -2585,6 +2619,7 @@ export default function AdminPage() {
               applyTemplate(template);
             }
           }}
+          onExportFaq={exportVerifiedFaq}
         />
       ) : null}
 

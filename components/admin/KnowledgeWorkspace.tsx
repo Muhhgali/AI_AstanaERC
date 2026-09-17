@@ -1,5 +1,6 @@
 "use client";
 
+import { Download } from "lucide-react";
 import { getKnowledgeStatus } from "./format";
 import { KnowledgeFilters } from "./KnowledgeFilters";
 import { KnowledgeInspector } from "./KnowledgeInspector";
@@ -43,6 +44,7 @@ export function KnowledgeWorkspace({
   onArchive,
   onDelete,
   onApplyTemplate,
+  onExportFaq,
 }: {
   items: KnowledgeListItem[];
   filteredItems: KnowledgeListItem[];
@@ -77,6 +79,7 @@ export function KnowledgeWorkspace({
   onArchive: () => void;
   onDelete: () => void;
   onApplyTemplate: (label: string) => void;
+  onExportFaq: () => void;
 }) {
   const tabStatus = status === "all" && category !== "all" ? "categories" : status;
 
@@ -93,13 +96,24 @@ export function KnowledgeWorkspace({
       title="База знаний"
       subtitle="Управление знаниями, которые использует AI-ассистент."
       actions={
-        <button
-          type="button"
-          onClick={onAdd}
-          className="h-10 rounded-xl bg-blue-600 px-4 text-sm font-semibold text-on-accent hover:bg-blue-700"
-        >
-          + Добавить материал
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={onExportFaq}
+            disabled={counts.verified === 0}
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-neutral-300 bg-white px-4 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Download className="h-4 w-4" aria-hidden="true" />
+            Скачать FAQ
+          </button>
+          <button
+            type="button"
+            onClick={onAdd}
+            className="h-10 rounded-xl bg-blue-600 px-4 text-sm font-semibold text-on-accent hover:bg-blue-700"
+          >
+            + Добавить материал
+          </button>
+        </>
       }
       tabs={
         <ModuleTabs
