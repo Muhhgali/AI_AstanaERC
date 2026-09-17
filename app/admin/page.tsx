@@ -685,6 +685,7 @@ export default function AdminPage() {
   const [supplierSaving, setSupplierSaving] = useState(false);
   const [managerSaving, setManagerSaving] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [exportingQuestionReport, setExportingQuestionReport] = useState(false);
   const [error, setError] = useState("");
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [inspectorMode, setInspectorMode] = useState<"view" | "edit" | "create">(
@@ -1540,6 +1541,42 @@ export default function AdminPage() {
     link.remove();
     URL.revokeObjectURL(url);
   }, [items]);
+
+  const exportQuestionReport = useCallback(async () => {
+    setExportingQuestionReport(true);
+    setError("");
+
+    try {
+      const token = await getAccessToken();
+
+      if (!token) {
+        router.push("/login");
+        throw new Error("Нужно войти в админку");
+      }
+
+      const response = await fetch("/api/admin/reports/frequent-questions", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!response.ok) {
+        const data = (await response.json().catch(() => ({}))) as { message?: string };
+        throw new Error(data.message ?? "Не удалось собрать отчёт");
+      }
+
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `astana-erc-questions-report-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось собрать отчёт");
+    } finally {
+      setExportingQuestionReport(false);
+    }
+  }, [getAccessToken, router]);
 
   const historyBuckets = useMemo(() => {
     const getBucket = (conversation: HistoryConversation): HistoryFilter => {
@@ -2620,6 +2657,8 @@ export default function AdminPage() {
             }
           }}
           onExportFaq={exportVerifiedFaq}
+          onExportQuestionReport={() => void exportQuestionReport()}
+          exportingQuestionReport={exportingQuestionReport}
         />
       ) : null}
 
