@@ -35,6 +35,7 @@
     "security:gate": "tsx scripts/securityReleaseGate.ts",
     "check:env": "tsx scripts/checkEnvironment.ts --network",
     "check:env:ci": "tsx scripts/checkEnvironment.ts --ci",
+    "smoke:documents": "tsx scripts/smokeDocumentIntelligence.ts",
     "check": "npm run check:env:ci && npm run lint && npm run typecheck && npm run test:run && npm run build"
   },
   "dependencies": {

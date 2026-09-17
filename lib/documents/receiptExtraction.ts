@@ -283,13 +283,29 @@ function extractionConfidence(found: unknown[], total: number) {
   return Math.max(0.1, Math.min(0.95, Number(score.toFixed(2))));
 }
 
+function cleanPeriodValue(value: string | undefined) {
+  if (!value) {
+    return undefined;
+  }
+
+  return value
+    .replace(
+      /\s+(адрес|лицев|плательщик|абонент|поставщик|начислен|итого|задолж|оплата|сальдо|фио|мекенжай)\b.*$/i,
+      ""
+    )
+    .trim();
+}
+
 export function extractEpdReceiptAnalysis(text: string): EpdReceiptAnalysis {
   const compact = normalizeText(text);
-  const period = firstMatch(compact, [
-    /(?:период|расчетный период|расчётный период)\s*[:\-]?\s*([а-яёa-z0-9.\-/ ]{4,40})/i,
-    /(?:за)\s+([а-яё]+\s+20\d{2})/i,
-    /\b((?:0[1-9]|1[0-2])[./-]20\d{2})\b/i,
-  ]);
+  const period = cleanPeriodValue(
+    firstMatch(compact, [
+      /(?:расчетный период|расчётный период|период)\s*[:\-]?\s*([а-яё]+\s+20\d{2})/i,
+      /(?:за)\s+([а-яё]+\s+20\d{2})/i,
+      /\b((?:0[1-9]|1[0-2])[./-]20\d{2})\b/i,
+      /(?:расчетный период|расчётный период|период)\s*[:\-]?\s*([а-яёa-z0-9.\-/ ]{4,40})/i,
+    ])
+  );
   const documentDate = firstMatch(compact, [
     /(?:дата документа|дата квитанции)\s*[:\-]?\s*(\d{2}[./-]\d{2}[./-]20\d{2})/i,
   ]);
@@ -648,8 +664,8 @@ export function buildReceiptSummary(
   if (status === "ocr_required") {
     return [
       "Похоже, в документе нет доступного текстового слоя.",
-      "Для скана или фото нужен OCR/vision. Я не буду угадывать данные по картинке без распознавания.",
-      "Можно загрузить текстовый PDF или подключить OCR-провайдера для изображений.",
+      "OCR/vision сейчас недоступен (нет ключа OpenAI или провайдер не ответил).",
+      "Можно загрузить текстовый PDF либо настроить OPENAI_API_KEY для распознавания сканов и фото.",
     ].join("\n");
   }
 

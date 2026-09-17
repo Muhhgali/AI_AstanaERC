@@ -76,6 +76,11 @@ export const RATE_LIMIT_POLICIES = {
     limit: 10,
     windowMs: 10 * 60_000,
   },
+  documentOcr: {
+    namespace: "document-ocr",
+    limit: 4,
+    windowMs: 10 * 60_000,
+  },
   adminAiMutation: {
     namespace: "admin-ai-mutation",
     // Staff review/publish of knowledge is bursty (one PATCH per card).
@@ -105,21 +110,30 @@ function getClientSignal(request: Request) {
   return createHash("sha256").update(rawSignal).digest("hex");
 }
 
+export function consumeRateLimit(
+  request: Request,
+  policy: RateLimitPolicy,
+  store: RateLimitStore = defaultStore,
+  now = Date.now()
+): RateLimitResult | { allowed: true; bypassed: true } {
+  if (shouldBypassRateLimit(policy)) {
+    return { allowed: true, bypassed: true };
+  }
+
+  const pathname = new URL(request.url).pathname;
+  const clientKey = `${policy.namespace}:${pathname}:${getClientSignal(request)}`;
+  return store.consume(clientKey, policy, now);
+}
+
 export function enforceRateLimit(
   request: Request,
   policy: RateLimitPolicy,
   store: RateLimitStore = defaultStore,
   now = Date.now()
 ) {
-  if (shouldBypassRateLimit(policy)) {
-    return null;
-  }
+  const result = consumeRateLimit(request, policy, store, now);
 
-  const pathname = new URL(request.url).pathname;
-  const clientKey = `${policy.namespace}:${pathname}:${getClientSignal(request)}`;
-  const result = store.consume(clientKey, policy, now);
-
-  if (result.allowed) {
+  if ("bypassed" in result || result.allowed) {
     return null;
   }
 

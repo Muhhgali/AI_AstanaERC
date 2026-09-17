@@ -68,103 +68,124 @@ export function isDocumentFollowUpQuestion(question: string) {
 
 function answerFromEpd(question: string, epd: EpdReceiptAnalysis) {
   const normalized = normalizeQuestion(question);
+  const parts: string[] = [];
 
   if (hasAny(normalized, ["период", "месяц", "за какой"])) {
-    return epd.period
-      ? `В ЕПД указан период: ${epd.period}.`
-      : "В извлечённых данных ЕПД период не найден. Я не буду его угадывать.";
+    parts.push(
+      epd.period
+        ? `В ЕПД указан период: ${epd.period}.`
+        : "В извлечённых данных ЕПД период не найден. Я не буду его угадывать."
+    );
   }
 
   if (hasAny(normalized, ["долг", "задолж", "сальдо"])) {
-    return [
-      epd.debtAmount !== undefined ? `Долг/задолженность в ЕПД: ${money(epd.debtAmount)}.` : null,
-      epd.previousBalance !== undefined ? `Предыдущее сальдо: ${money(epd.previousBalance)}.` : null,
-      epd.paymentsShown !== undefined ? `Оплаты, показанные в ЕПД: ${money(epd.paymentsShown)}.` : null,
-      epd.carriedDebtAmount !== undefined ? `Перенесённый остаток после оплат: ${money(epd.carriedDebtAmount)}.` : null,
-      epd.deferredOverpaymentAmount !== undefined ? `Переплата/излишек после закрытия сальдо: ${money(epd.deferredOverpaymentAmount)}.` : null,
-      epd.chargesAmount !== undefined ? `Новое начисление: ${money(epd.chargesAmount)}.` : null,
-      epd.amountDue !== undefined ? `К оплате/итого: ${money(epd.amountDue)}.` : null,
-      ...(epd.calculationNotes ?? []),
-      epd.debtAmount === undefined && epd.previousBalance === undefined && epd.amountDue === undefined
-        ? "В ЕПД не найдено отдельное поле долга/сальдо/к оплате."
-        : null,
-    ]
-      .filter(Boolean)
-      .join("\n");
+    parts.push(
+      [
+        epd.debtAmount !== undefined ? `Долг/задолженность в ЕПД: ${money(epd.debtAmount)}.` : null,
+        epd.previousBalance !== undefined ? `Предыдущее сальдо: ${money(epd.previousBalance)}.` : null,
+        epd.paymentsShown !== undefined ? `Оплаты, показанные в ЕПД: ${money(epd.paymentsShown)}.` : null,
+        epd.carriedDebtAmount !== undefined ? `Перенесённый остаток после оплат: ${money(epd.carriedDebtAmount)}.` : null,
+        epd.deferredOverpaymentAmount !== undefined ? `Переплата/излишек после закрытия сальдо: ${money(epd.deferredOverpaymentAmount)}.` : null,
+        epd.chargesAmount !== undefined ? `Новое начисление: ${money(epd.chargesAmount)}.` : null,
+        epd.amountDue !== undefined ? `К оплате/итого: ${money(epd.amountDue)}.` : null,
+        ...(epd.calculationNotes ?? []),
+        epd.debtAmount === undefined && epd.previousBalance === undefined && epd.amountDue === undefined
+          ? "В ЕПД не найдено отдельное поле долга/сальдо/к оплате."
+          : null,
+      ]
+        .filter(Boolean)
+        .join("\n")
+    );
   }
 
-  if (hasAny(normalized, ["оплат", "учтен", "учтен", "платеж"])) {
-    return [
-      epd.paymentsShown !== undefined
-        ? `В самом ЕПД найдено поле оплат: ${money(epd.paymentsShown)}.`
-        : "В ЕПД не найдено отдельное поле оплат.",
-      epd.carriedDebtAmount !== undefined
-        ? `Остаток после предыдущего сальдо и оплат: ${money(epd.carriedDebtAmount)}.`
-        : null,
-      epd.deferredOverpaymentAmount !== undefined
-        ? `Оплата больше предыдущего сальдо на ${money(epd.deferredOverpaymentAmount)}. Этот излишек может храниться на транзитном счёте собственника и учитываться в следующем расчётном периоде.`
-        : null,
-      ...(epd.calculationNotes ?? []),
-      "Если нужно проверить банковский чек, загрузите его вместе с ЕПД. Чек банка сам по себе не доказывает, что ЕРЦ уже учёл оплату.",
-    ].join("\n");
+  if (hasAny(normalized, ["оплат", "учтен", "учтен", "платеж"]) && !hasAny(normalized, ["сумм", "итого", "к оплате"])) {
+    parts.push(
+      [
+        epd.paymentsShown !== undefined
+          ? `В самом ЕПД найдено поле оплат: ${money(epd.paymentsShown)}.`
+          : "В ЕПД не найдено отдельное поле оплат.",
+        epd.carriedDebtAmount !== undefined
+          ? `Остаток после предыдущего сальдо и оплат: ${money(epd.carriedDebtAmount)}.`
+          : null,
+        epd.deferredOverpaymentAmount !== undefined
+          ? `Оплата больше предыдущего сальдо на ${money(epd.deferredOverpaymentAmount)}. Этот излишек может храниться на транзитном счёте собственника и учитываться в следующем расчётном периоде.`
+          : null,
+        ...(epd.calculationNotes ?? []),
+        "Если нужно проверить банковский чек, загрузите его вместе с ЕПД. Чек банка сам по себе не доказывает, что ЕРЦ уже учёл оплату.",
+      ].join("\n")
+    );
   }
 
   if (
     hasAny(normalized, ["переплат", "транзит", "больше чем сальдо", "следующ"])
   ) {
-    return [
-      epd.deferredOverpaymentAmount !== undefined
-        ? `В ЕПД видна переплата/излишек после закрытия предыдущего сальдо: ${money(epd.deferredOverpaymentAmount)}.`
-        : "Если оплата больше предыдущего сальдо, это нужно трактовать как возможную переплату/излишек, а не как ошибку начисления.",
-      "Такие деньги могут храниться на транзитных счетах собственника и учитываться в следующем расчётном периоде или по правилам конкретного поставщика.",
-      "Поэтому бот не должен самовольно вычитать переплату из всех текущих начислений. Главные ориентиры — колонка «К оплате», следующий ЕПД и внутренняя проверка зачисления.",
-      ...(epd.calculationNotes ?? []),
-    ].join("\n");
+    parts.push(
+      [
+        epd.deferredOverpaymentAmount !== undefined
+          ? `В ЕПД видна переплата/излишек после закрытия предыдущего сальдо: ${money(epd.deferredOverpaymentAmount)}.`
+          : "Если оплата больше предыдущего сальдо, это нужно трактовать как возможную переплату/излишек, а не как ошибку начисления.",
+        "Такие деньги могут храниться на транзитных счетах собственника и учитываться в следующем расчётном периоде или по правилам конкретного поставщика.",
+        "Поэтому бот не должен самовольно вычитать переплату из всех текущих начислений. Главные ориентиры — колонка «К оплате», следующий ЕПД и внутренняя проверка зачисления.",
+        ...(epd.calculationNotes ?? []),
+      ].join("\n")
+    );
   }
 
   if (
     hasAny(normalized, ["домофон", "не приш", "нет строк", "аннулир", "обнул"])
   ) {
-    return [
-      "Если по услуге были оплаты за прошлый период и они полностью закрыли сальдо, долг по этой строке может обнулиться.",
-      "Это не означает автоматическую переплату: если оплачено ровно сколько нужно, строка закрывается без дополнительной суммы к оплате.",
-      "Чтобы проверить конкретную услугу, нужны строка ЕПД и чеки оплат за прошлый период.",
-    ].join("\n");
+    parts.push(
+      [
+        "Если по услуге были оплаты за прошлый период и они полностью закрыли сальдо, долг по этой строке может обнулиться.",
+        "Это не означает автоматическую переплату: если оплачено ровно сколько нужно, строка закрывается без дополнительной суммы к оплате.",
+        "Чтобы проверить конкретную услугу, нужны строка ЕПД и чеки оплат за прошлый период.",
+      ].join("\n")
+    );
   }
 
   if (hasAny(normalized, ["поставщик", "начислил", "услуга", "строка"])) {
     if (epd.suppliers.length > 0) {
-      return `В ЕПД удалось выделить поставщиков/строки: ${epd.suppliers.join("; ")}.`;
+      parts.push(
+        `В ЕПД удалось выделить поставщиков/строки: ${epd.suppliers.join("; ")}.`
+      );
+    } else if (epd.lineItems.length > 0) {
+      parts.push(
+        epd.lineItems
+          .slice(0, 8)
+          .map((item) => `- ${item.raw}`)
+          .join("\n")
+      );
+    } else {
+      parts.push(
+        "В извлечённых данных ЕПД я не смог надёжно выделить поставщиков или строки услуг."
+      );
     }
-
-    if (epd.lineItems.length > 0) {
-      return epd.lineItems
-        .slice(0, 8)
-        .map((item) => `- ${item.raw}`)
-        .join("\n");
-    }
-
-    return "В извлечённых данных ЕПД я не смог надёжно выделить поставщиков или строки услуг.";
   }
 
   if (hasAny(normalized, ["сумм", "итого", "к оплате", "почему такая"])) {
-    return epd.amountDue !== undefined
-      ? [
-          `Итого/к оплате в ЕПД: ${money(epd.amountDue)}.`,
-          epd.chargesAmount !== undefined ? `Начислено: ${money(epd.chargesAmount)}.` : null,
-          epd.paymentsShown !== undefined ? `Оплаты в ЕПД: ${money(epd.paymentsShown)}.` : null,
-          epd.deferredOverpaymentAmount !== undefined ? `Возможная переплата/излишек к учёту позже: ${money(epd.deferredOverpaymentAmount)}.` : null,
-          epd.lineItems.length > 0
-            ? "Найденные строки с суммами:\n" +
-              epd.lineItems
-                .slice(0, 8)
-                .map((item) => `- ${item.raw}`)
-                .join("\n")
-            : null,
-        ]
-          .filter(Boolean)
-          .join("\n")
-      : "В извлечённых данных ЕПД я не нашёл поле «итого к оплате».";
+    parts.push(
+      epd.amountDue !== undefined
+        ? [
+            `Итого/к оплате в ЕПД: ${money(epd.amountDue)}.`,
+            epd.chargesAmount !== undefined ? `Начислено: ${money(epd.chargesAmount)}.` : null,
+            epd.paymentsShown !== undefined ? `Оплаты в ЕПД: ${money(epd.paymentsShown)}.` : null,
+            epd.deferredOverpaymentAmount !== undefined ? `Возможная переплата/излишек к учёту позже: ${money(epd.deferredOverpaymentAmount)}.` : null,
+            epd.lineItems.length > 0
+              ? "Найденные строки с суммами:\n" +
+                epd.lineItems
+                  .slice(0, 8)
+                  .map((item) => `- ${item.raw}`)
+                  .join("\n")
+              : null,
+          ]
+            .filter(Boolean)
+            .join("\n")
+        : "В извлечённых данных ЕПД я не нашёл поле «итого к оплате»."
+    );
+  }
+
+  if (parts.length > 0) {
+    return parts.join("\n");
   }
 
   return null;
@@ -219,7 +240,7 @@ export function buildDocumentGroundedAnswer(params: {
   }
 
   if (document.status === "ocr_required") {
-    return "По этому документу пока нельзя отвечать: нужен OCR/vision для скана или изображения. Я не буду угадывать данные.";
+    return "По этому документу пока нельзя отвечать: OCR/vision не смог распознать текст. Загрузите текстовый PDF или более чёткое фото.";
   }
 
   if (document.status !== "ready") {
@@ -257,6 +278,28 @@ export function buildDocumentGroundedAnswer(params: {
     .join("\n");
 }
 
+export function isDocumentSetReconciliationQuestion(question: string) {
+  const normalized = normalizeQuestion(question);
+
+  return hasAny(normalized, [
+    "почему долг",
+    "если оплатил",
+    "свер",
+    "сравн",
+    "совпад",
+    "учтён",
+    "учтен",
+    "оба документ",
+    "два документ",
+    "вместе",
+    "чек и епд",
+    "епд и чек",
+    "банковск",
+    "отразил",
+    "не отраж",
+  ]);
+}
+
 export function buildMultiDocumentGroundedAnswer(params: {
   question: string;
   documents: ResidentDocumentRecord[];
@@ -267,6 +310,53 @@ export function buildMultiDocumentGroundedAnswer(params: {
     return document
       ? buildDocumentGroundedAnswer({ question: params.question, document })
       : "Документ не найден в этой сессии.";
+  }
+
+  const ready = params.documents.filter((document) => document.status === "ready");
+  const epd = ready.find((document) =>
+    document.structured_result
+      ? isEpd(document.structured_result)
+      : false
+  );
+  const bank = ready.find((document) =>
+    document.structured_result
+      ? isBank(document.structured_result)
+      : false
+  );
+  const normalized = normalizeQuestion(params.question);
+  const wantsReconciliation =
+    isDocumentSetReconciliationQuestion(params.question) ||
+    Boolean(
+      epd &&
+        bank &&
+        hasAny(normalized, ["долг", "оплат", "сумм", "итого", "сальдо", "задолж"])
+    );
+
+  if (wantsReconciliation) {
+    return buildDocumentSetAnswer(params);
+  }
+
+  if (
+    bank &&
+    hasAny(normalized, ["чек", "банк", "kaspi", "halyk", "транзак", "комисс"])
+  ) {
+    const answer = buildDocumentGroundedAnswer({
+      question: params.question,
+      document: bank,
+    });
+    return epd
+      ? `${answer}\n\nТакже загружен ЕПД — могу сравнить оплату с начислениями, если спросите «почему долг, если оплатил?»`
+      : answer;
+  }
+
+  if (epd) {
+    const answer = buildDocumentGroundedAnswer({
+      question: params.question,
+      document: epd,
+    });
+    return bank
+      ? `${answer}\n\nТакже загружен банковский чек — могу сверить документы по запросу.`
+      : answer;
   }
 
   return buildDocumentSetAnswer(params);

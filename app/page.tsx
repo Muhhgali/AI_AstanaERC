@@ -80,6 +80,21 @@ type ReceiptUploadResponse = {
   activeDocumentId?: string;
   activeDocumentIds?: string[];
   status?: string;
+  documentType?: string;
+  extractionMethod?: string;
+  structuredResult?: Record<string, unknown>;
+  setupRequired?: boolean;
+  warnings?: string[];
+};
+
+type EphemeralDocumentContextState = {
+  clientId: string;
+  fileName: string;
+  documentType: string;
+  extractionMethod: string;
+  structuredResult: Record<string, unknown>;
+  status?: string;
+  warnings?: string[];
 };
 
 function formatUploadSize(size: number) {
@@ -170,6 +185,9 @@ function sourceLabel(source?: string) {
   if (source === "appointment-saved") return "Заявка принята";
   if (source === "operator-handoff") return "Оператор";
   if (source === "receipt-analysis") return "Квитанция";
+  if (source === "document-analysis") return "Документ";
+  if (source === "document-analysis-ephemeral") return "Документ (без сохранения)";
+  if (source === "document-grounded") return "По документу";
   if (source === "resident-intent-meter-vague-problem") return "Уточнение";
   if (source === "error") return "Ошибка";
   return source ?? "Ответ";
@@ -747,6 +765,9 @@ export default function Home() {
   const [pendingDocumentFiles, setPendingDocumentFiles] = useState<File[]>([]);
   const [activeDocumentId, setActiveDocumentId] = useState<string | undefined>();
   const [activeDocumentIds, setActiveDocumentIds] = useState<string[]>([]);
+  const [documentContexts, setDocumentContexts] = useState<
+    EphemeralDocumentContextState[]
+  >([]);
   const [voiceSupported, setVoiceSupported] = useState(false);
   const [speakingMessageIndex, setSpeakingMessageIndex] = useState<
     number | null
@@ -991,17 +1012,44 @@ export default function Home() {
     try {
       let documentIdsForRequest = activeDocumentIds;
       let documentIdForRequest = activeDocumentId;
+      let contextsForRequest = documentContexts;
 
       if (filesToUpload.length > 0) {
         setReceiptUploading(true);
         const uploadedIds: string[] = [];
+        const nextContexts: EphemeralDocumentContextState[] = [];
+        const analysisMessages: ChatMessage[] = [];
 
-        for (const file of filesToUpload) {
+        for (const [index, file] of filesToUpload.entries()) {
           const upload = await uploadReceiptFile(file);
           const nextId = upload.activeDocumentId ?? upload.documentId;
 
           if (nextId) {
             uploadedIds.push(nextId);
+          }
+
+          if (upload.structuredResult && upload.status === "ready") {
+            nextContexts.push({
+              clientId: nextId ?? `ephemeral-${Date.now()}-${index}`,
+              fileName: file.name,
+              documentType: upload.documentType ?? "unknown",
+              extractionMethod: upload.extractionMethod ?? "none",
+              structuredResult: upload.structuredResult,
+              status: upload.status,
+              warnings: upload.warnings,
+            });
+          }
+
+          if (upload.message) {
+            analysisMessages.push({
+              role: "assistant",
+              content: upload.message,
+              source:
+                upload.source === "document-analysis-ephemeral"
+                  ? "document-analysis-ephemeral"
+                  : "document-analysis",
+              suggestedQuestions: upload.suggestedQuestions,
+            });
           }
         }
 
@@ -1013,6 +1061,15 @@ export default function Home() {
           activeDocumentId;
         setActiveDocumentId(documentIdForRequest);
         setActiveDocumentIds(documentIdsForRequest);
+
+        if (nextContexts.length > 0) {
+          contextsForRequest = [...documentContexts, ...nextContexts].slice(-4);
+          setDocumentContexts(contextsForRequest);
+        }
+
+        if (analysisMessages.length > 0) {
+          setMessages((prev) => [...prev, ...analysisMessages]);
+        }
       }
 
       const controller = new AbortController();
@@ -1028,6 +1085,7 @@ export default function Home() {
           visitorId,
           activeDocumentId: documentIdForRequest,
           activeDocumentIds: documentIdsForRequest,
+          documentContexts: contextsForRequest,
           language,
           messages: updated.map(({ role, content }) => ({
             role,
@@ -2449,6 +2507,7 @@ export default function Home() {
                     onClick={() => {
                       setActiveDocumentId(undefined);
                       setActiveDocumentIds([]);
+                      setDocumentContexts([]);
                     }}
                     className="hidden shrink-0 rounded-xl border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 sm:block"
                     title="Убрать загруженные документы из текущего анализа"
