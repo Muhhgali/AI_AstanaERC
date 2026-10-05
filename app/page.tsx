@@ -26,6 +26,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BrandMark } from "@/components/BrandMark";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { METER_CORRECTION_ENABLED } from "@/lib/features";
 import type {
   ChatMessage,
   ChatResponse,
@@ -121,7 +122,6 @@ const QUICK_GROUPS = [
     title: "Показания и счетчики",
     items: [
       "Куда передавать показания электроэнергии?",
-      "Нужно исправить показания счетчика",
     ],
   },
   {
@@ -141,8 +141,8 @@ const GUIDED_SCENARIOS = [
   },
   {
     title: "Показания",
-    text: "передать или исправить показания счетчика",
-    prompt: "Нужно исправить показания счетчика",
+    text: "узнать, куда и когда передавать показания счетчика",
+    prompt: "Как передать показания счетчика?",
   },
   {
     title: "Квитанция",
@@ -2247,7 +2247,7 @@ export default function Home() {
                             </div>
                           </div>
                         )}
-                        {!isUser && msg.meterCorrectionForm && (
+                        {METER_CORRECTION_ENABLED && !isUser && msg.meterCorrectionForm && (
                           <MeterCorrectionFormCard
                             form={msg.meterCorrectionForm}
                             disabled={loading}

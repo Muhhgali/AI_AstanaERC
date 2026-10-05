@@ -20,6 +20,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BrandMark } from "@/components/BrandMark";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { METER_CORRECTION_ENABLED } from "@/lib/features";
 import type {
   ChatMessage,
   ChatResponse,
@@ -1819,7 +1820,7 @@ export default function WidgetPage() {
                       </div>
                     </div>
                   )}
-                  {!isUser && message.meterCorrectionForm && (
+                  {METER_CORRECTION_ENABLED && !isUser && message.meterCorrectionForm && (
                     <MeterCorrectionFormCard
                       form={message.meterCorrectionForm}
                       disabled={loading}

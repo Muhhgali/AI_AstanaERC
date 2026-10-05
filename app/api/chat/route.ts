@@ -12,6 +12,7 @@ import {
   toLegacyKnowledgeResult,
 } from "@/lib/rag/hybridRetrieval";
 import { getSupabaseProjectUrl } from "@/lib/supabaseEnv";
+import { METER_CORRECTION_ENABLED, meterCorrectionUnavailableMessage } from "@/lib/features";
 import {
   buildMeterCorrectionCreatedMessage,
   buildMeterCorrectionQuestion,
@@ -1490,8 +1491,8 @@ const SUGGESTIONS_RU = {
   ],
   meters: [
     "Как передать показания счетчика",
-    "Как исправить показания счетчика",
-    "Какие данные нужны для исправления показаний",
+    "Куда передавать показания электроэнергии",
+    "Когда можно передавать показания",
   ],
   receipts: [
     "Что такое ЕПД простыми словами",
@@ -1543,8 +1544,8 @@ const SUGGESTIONS_KK = {
   ],
   meters: [
     "Есептегіш көрсеткішін қалай жіберуге болады?",
-    "Есептегіш көрсеткішін қалай түзетуге болады?",
-    "Көрсеткішті түзету үшін қандай деректер керек?",
+    "Электр есептегішінің көрсеткішін қайда жіберуге болады?",
+    "Есептегіш көрсеткішін қашан жіберуге болады?",
   ],
   receipts: [
     "ЕПД деген не?",
@@ -2023,6 +2024,28 @@ export async function POST(req: Request) {
     const userMessages = messages.filter((message) => message.role === "user");
 
     if (
+      !METER_CORRECTION_ENABLED &&
+      (submittedMeterCorrection || isMeterCorrectionIntent(lastMessage))
+    ) {
+      const assistantMessage = meterCorrectionUnavailableMessage(responseLanguage);
+      const saved = await saveTurn({
+        conversationId,
+        visitorId,
+        userMessage: lastMessage,
+        assistantMessage,
+        source: "meter-correction-unavailable",
+      });
+
+      return jsonResponse({
+        message: assistantMessage,
+        source: "meter-correction-unavailable",
+        conversationId: saved.conversationId,
+        messageId: saved.messageId,
+        suggestedQuestions: pickSuggestedQuestions(responseLanguage, "default"),
+      });
+    }
+
+    if (
       activeDocumentIds.length > 0 &&
       !submittedMeterCorrection &&
       isDocumentFollowUpQuestion(lastMessage)
@@ -2072,7 +2095,7 @@ export async function POST(req: Request) {
       });
     }
 
-    if (submittedMeterCorrection) {
+    if (METER_CORRECTION_ENABLED && submittedMeterCorrection) {
       const { draft, missing } = validateMeterCorrectionForm(
         submittedMeterCorrection
       );
@@ -2347,7 +2370,7 @@ export async function POST(req: Request) {
       });
     }
 
-    if (isMeterCorrectionIntent(lastMessage)) {
+    if (METER_CORRECTION_ENABLED && isMeterCorrectionIntent(lastMessage)) {
       const meterCorrectionDraft = mergeMeterCorrectionDrafts(userMessages);
       const assistantMessage = buildMeterCorrectionQuestion(
         undefined,
@@ -2379,14 +2402,14 @@ export async function POST(req: Request) {
     }
 
     const meterCorrectionDraft = mergeMeterCorrectionDrafts(userMessages);
-    const meterCorrectionActive =
+    const meterCorrectionActive = METER_CORRECTION_ENABLED && (
       isMeterCorrectionIntent(lastMessage) ||
       messages.some(
         (message) =>
           message.role === "assistant" &&
           (message.content?.includes("заявку на корректировку показаний") ||
             message.content?.includes("Көрсеткіштерді түзетуге өтінім"))
-      );
+      ));
 
     if (meterCorrectionActive) {
       const missingFields = getMissingMeterCorrectionFields(
