@@ -18,9 +18,19 @@ create table if not exists public.resident_documents (
   status text not null default 'uploaded'
     check (status in ('uploaded', 'extracting', 'ready', 'ocr_required', 'failed', 'deleted')),
   document_type text not null default 'unknown'
-    check (document_type in ('receipt', 'payment_receipt', 'application', 'unknown')),
+    check (document_type in (
+      'epd_receipt',
+      'bank_payment_receipt',
+      'application',
+      'statement',
+      'other',
+      'unknown',
+      -- backward-compatible Stage 5 aliases
+      'receipt',
+      'payment_receipt'
+    )),
   extraction_method text not null default 'none'
-    check (extraction_method in ('native_pdf', 'ocr', 'none')),
+    check (extraction_method in ('native_pdf', 'ocr', 'vision', 'none')),
   page_count integer,
   extracted_text text,
   structured_result jsonb,

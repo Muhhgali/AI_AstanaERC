@@ -48,7 +48,7 @@ npm run dev
 | `NEXT_PUBLIC_SUPABASE_URL` | да | URL для браузерного клиента |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | да | Публичный anon key браузерного клиента |
 | `OPENAI_API_KEY` | да | Embeddings и генерация ответов |
-| `OPENAI_ANALYSIS_MODEL` | нет | Модель административного анализа PDF; fallback — `gpt-4.1` |
+| `OPENAI_ANALYSIS_MODEL` | нет | Модель admin PDF-анализа и OCR/vision для сканов/фото; fallback — `gpt-4.1` |
 | `RESEND_API_KEY` | нет | Отправка уведомлений |
 | `MAIL_FROM` | нет | Проверенный отправитель Resend |
 | `DEBUG_RETRIEVAL` | нет | Диагностика retrieval без вывода секретов |

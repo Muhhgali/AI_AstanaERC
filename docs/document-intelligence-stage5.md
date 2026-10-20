@@ -24,29 +24,30 @@ Missing before this stage:
 Risk:
 
 - resident PDFs may contain account numbers, addresses, names, totals, QR/barcodes;
-- PDF text is untrusted input and must never become system instructions;
-- OCR is not connected yet, so scanned PDFs must be marked `ocr_required`.
+- PDF/OCR text is untrusted input and must never become system instructions;
+- scanned PDFs and images use OpenAI vision OCR when `OPENAI_API_KEY` is set;
+- without the key, scans/images stay `ocr_required` and are not guessed.
 
 ## Architecture
 
-Upload → Validate → Private Storage → Native Extract → Classify → Structure → Store → Chat.
+Upload → Validate → Private Storage → Native Extract → (Vision OCR fallback) → Classify → Structure → Store → Chat.
 
-MVP:
+MVP + Stage 5.1 OCR:
 
-- supported upload: PDF only;
-- primary type: `receipt`;
-- other types are classified only as `payment_receipt`, `application`, or `unknown`;
-- native text PDF is processed locally with `pdf-parse`;
-- scanned/image PDF returns `ocr_required`;
-- no OpenAI call is required for upload or document follow-up in the MVP.
+- supported upload: PDF, JPG, PNG;
+- primary types: `epd_receipt` / `bank_payment_receipt`;
+- native text PDF is processed locally with `pdf-parse` (0 OpenAI calls);
+- scanned/image PDF or photo falls back to OpenAI vision OCR (`OPENAI_ANALYSIS_MODEL`, default `gpt-4.1`);
+- structured fields still come from deterministic parsers over OCR text;
+- document follow-up questions still use stored `structured_result` (0 OpenAI calls).
 
 ## Limits
 
-- max file size: 8 MB;
+- max file size: 4 MB (runtime validation);
 - max pages: 5;
-- MIME must be `application/pdf`;
-- extension must be `.pdf`;
-- magic bytes must start with `%PDF-`;
+- MIME: `application/pdf`, `image/jpeg`, `image/png`;
+- extension must match content;
+- magic bytes must match PDF/PNG/JPEG;
 - encrypted/malformed PDF returns a user-friendly failure.
 
 These limits are intentionally small for MVP because receipts should be short, and
@@ -106,7 +107,8 @@ rules are required.
 - upload of one text PDF: 0 OpenAI calls;
 - native extraction: 0 OpenAI calls;
 - follow-up document question: 0 OpenAI calls;
-- scanned PDF: 0 OpenAI calls, returns `ocr_required`;
+- scanned PDF / JPG / PNG: 1 OpenAI vision call for OCR text, then local structuring;
+- if `OPENAI_API_KEY` is missing: 0 OpenAI calls, returns `ocr_required`;
 - no repeated extraction for follow-up questions.
 
 ## OWNER DOCUMENT PACK REQUIRED
@@ -139,8 +141,12 @@ After reviewing real receipts, we need explicit rules:
 - which fields may be shown back to the resident;
 - when the bot should send the resident to 109/Qalaqyzmet/operator.
 
-## OCR recommendation
+## OCR / Stage 5.1
 
-Do not connect a random paid OCR provider yet. First collect real PDFs and measure
-how many are text PDFs vs scans. If scans are frequent, use a provider abstraction
-behind `DocumentTextExtractor`; candidate options can be compared in Stage 5.1.
+Implemented behind `OcrExtractor` / `extractResidentDocumentText`:
+
+- PDF with usable text layer → `native_pdf`;
+- PDF with too little text → OpenAI vision via Files + Responses API;
+- JPG/PNG → OpenAI vision `input_image`;
+- temporary uploaded OpenAI files are deleted after OCR;
+- deterministic `extractReceiptStructuredData` still owns field parsing.

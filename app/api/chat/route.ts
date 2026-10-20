@@ -40,10 +40,15 @@ import {
   normalizeUuid,
 } from "@/lib/security/visitorOwnership";
 import {
-  buildMultiDocumentGroundedAnswer,
+  findDocumentAnswer,
   isDocumentFollowUpQuestion,
 } from "@/lib/documents/conversation";
 import { loadOwnedResidentDocuments } from "@/lib/documents/repository";
+import {
+  ephemeralContextsToDocuments,
+  parseEphemeralDocumentContexts,
+  type EphemeralDocumentContext,
+} from "@/lib/documents/ephemeralContext";
 import {
   buildKnowledgeGapPriority,
   inferKnowledgeGapCategory,
@@ -1767,6 +1772,42 @@ async function saveKnowledgeGap(params: {
   }
 }
 
+// Returns null when the question is not about the attached documents, so the
+// regular knowledge-base flow answers it instead.
+async function answerFromAttachedDocuments(params: {
+  question: string;
+  activeDocumentIds: string[];
+  ephemeralContexts: EphemeralDocumentContext[];
+  visitorId: string;
+}) {
+  let persistedDocuments: Awaited<ReturnType<typeof loadOwnedResidentDocuments>> = [];
+
+  if (params.activeDocumentIds.length > 0) {
+    try {
+      persistedDocuments = await loadOwnedResidentDocuments({
+        supabase: getAdminSupabase(),
+        documentIds: params.activeDocumentIds,
+        visitorId: params.visitorId,
+      });
+    } catch (error) {
+      console.warn("RESIDENT DOCUMENTS LOAD SKIPPED:", error);
+    }
+  }
+
+  // The client also keeps an in-browser copy of every analysed document. Drop
+  // copies of documents that were loaded from the database, otherwise the
+  // same receipt is counted twice and "reconciled" against itself.
+  const persistedIds = new Set(persistedDocuments.map((document) => document.id));
+  const ephemeralDocuments = ephemeralContextsToDocuments(
+    params.ephemeralContexts.filter((context) => !persistedIds.has(context.clientId))
+  );
+
+  return findDocumentAnswer({
+    question: params.question,
+    documents: [...persistedDocuments, ...ephemeralDocuments],
+  });
+}
+
 async function createOperatorHandoff(params: {
   conversationId?: string;
   visitorId?: string;
@@ -1931,6 +1972,9 @@ export async function POST(req: Request) {
       : activeDocumentId
         ? [activeDocumentId]
         : [];
+    const ephemeralContexts = parseEphemeralDocumentContexts(
+      bodyObj?.documentContexts
+    );
     const visitorId = visitorOwnership.visitorId;
 
     if (messages.length === 0) {
@@ -1995,34 +2039,20 @@ export async function POST(req: Request) {
       });
     }
 
-    if (
-      activeDocumentIds.length > 0 &&
+    const documentAnswer =
+      (activeDocumentIds.length > 0 || ephemeralContexts.length > 0) &&
       !submittedMeterCorrection &&
       isDocumentFollowUpQuestion(lastMessage)
-    ) {
-      const documents = await loadOwnedResidentDocuments({
-        supabase: getAdminSupabase(),
-        documentIds: activeDocumentIds,
-        visitorId,
-      });
+        ? await answerFromAttachedDocuments({
+            question: lastMessage,
+            activeDocumentIds,
+            ephemeralContexts,
+            visitorId,
+          })
+        : null;
 
-      if (documents.length === 0) {
-        return jsonResponse(
-          {
-            message:
-              responseLanguage === "kk"
-                ? "Бұл құжат табылмады немесе сізге тиесілі емес."
-                : "Документ не найден или не принадлежит этой сессии.",
-            source: "document-not-found",
-          },
-          { status: 404 }
-        );
-      }
-
-      const assistantMessage = buildMultiDocumentGroundedAnswer({
-        question: lastMessage,
-        documents,
-      });
+    if (documentAnswer) {
+      const assistantMessage = documentAnswer;
       const saved = await saveTurn({
         conversationId,
         visitorId,

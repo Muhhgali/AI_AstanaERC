@@ -237,7 +237,7 @@ describe("document intelligence", () => {
     expect(answer).toContain("только по данным");
   });
 
-  it("does not answer scanned PDFs without OCR", () => {
+  it("does not answer scanned PDFs when OCR did not produce text", () => {
     const document: ResidentDocumentRecord = {
       id: "00000000-0000-4000-8000-000000000002",
       visitor_id: "visitor",
@@ -255,7 +255,20 @@ describe("document intelligence", () => {
         question: "Какая сумма?",
         document,
       })
-    ).toContain("OCR");
+    ).toMatch(/OCR|распознать/i);
+  });
+
+  it("extracts a clean period and answers compound period+amount questions", () => {
+    const structured = extractEpdReceiptAnalysis(epdText);
+    expect(structured.period).toBe("июль 2026");
+
+    const answer = buildDocumentGroundedAnswer({
+      question: "Какой период указан и сколько итого к оплате?",
+      document: doc("epd-q", structured),
+    });
+
+    expect(answer).toContain("июль 2026");
+    expect(answer).toMatch(/1\s*200/);
   });
 
   it("builds a strong match from EPD + bank receipt when account and amount match", () => {
