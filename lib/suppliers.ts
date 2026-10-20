@@ -1,4 +1,5 @@
 import suppliers from "@/data/suppliers-2026-06-25.normalized.json";
+import { hasPhrase, hasWord, hasWordPrefix } from "./textMatch";
 
 type SupplierRecord = {
   supplierCode: number;
@@ -188,29 +189,23 @@ function toManagerCard(supplier: SupplierRecord): SupplierManagerCard {
 }
 
 function isSupplierIntent(text: string) {
-  const normalized = normalize(text);
-
-  return [
-    "поставщик",
-    "поставщика",
-    "бин",
-    "бсн",
-    "менеджер",
-    "менеджера",
-    "куратор",
-    "договор",
-    "ответственный",
-    "кск",
-    "оси",
-    "жк",
-    "пик",
-    "жабдықтаушы",
-    "жеткізуші",
-    "менеджері",
-    "шарт",
-    "жауапты",
-    "мүлік иелері",
-  ].some((word) => normalized.includes(word));
+  // Short abbreviations must be whole words: "бин" is inside "кабинет",
+  // "оси" inside "спросить", "жк" inside "ложка".
+  return (
+    hasWordPrefix(text, [
+      "поставщик",
+      "менеджер",
+      "куратор",
+      "договор",
+      "ответственн",
+      "жабдықтаушы",
+      "жеткізуші",
+      "шарт",
+      "жауапты",
+    ]) ||
+    hasWord(text, ["бин", "бсн", "кск", "оси", "жк", "пик", "тоо", "ип"]) ||
+    hasPhrase(text, ["мүлік иелері"])
+  );
 }
 
 function findBySupplierCode(text: string) {

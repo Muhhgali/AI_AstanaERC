@@ -22,10 +22,17 @@ export function normalizeKnowledgeStatus(
 }
 
 export function isPublishedKnowledge(item: KnowledgeLifecycleInput) {
-  return (
-    normalizeKnowledgeStatus(item.status, item.verified) === "verified" &&
-    item.verified === true
-  );
+  if (item.verified !== true) {
+    return false;
+  }
+
+  // The `status` column defaults to 'draft', and the import/upsert scripts never
+  // set it, so rows imported as verified=true ended up as draft and were hidden
+  // from the bot. The verified flag is authoritative unless the row was
+  // explicitly sent to review or archived.
+  const status = normalizeKnowledgeStatus(item.status, item.verified);
+
+  return status !== "archived" && status !== "review";
 }
 
 export function isArchivedKnowledge(item: KnowledgeLifecycleInput) {

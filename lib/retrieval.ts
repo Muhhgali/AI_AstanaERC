@@ -1,8 +1,56 @@
-import { supabase } from "@/lib/supabaseClient";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { supabase as anonSupabase } from "@/lib/supabaseClient";
+import { getSupabaseProjectUrl } from "@/lib/supabaseEnv";
 import {
   isArchivedKnowledge,
   isPublishedKnowledge,
 } from "@/lib/knowledgeLifecycle";
+
+const KNOWLEDGE_PAGE_SIZE = 1000;
+
+let serverSupabase: SupabaseClient | null = null;
+
+// The security migration enables RLS on `knowledge` with an admin-only policy.
+// Reading it with the anon key then returns zero rows without an error, and the
+// bot answers "нет подтверждённой информации" to everything. Retrieval runs on
+// the server only, so it reads with the service-role key when available.
+function getKnowledgeReader(): SupabaseClient {
+  const url = getSupabaseProjectUrl();
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !serviceRoleKey) {
+    return anonSupabase;
+  }
+
+  serverSupabase ??= createClient(url, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  return serverSupabase;
+}
+
+async function selectAllKnowledge(columns: string) {
+  const reader = getKnowledgeReader();
+  const rows: KnowledgeRow[] = [];
+
+  for (let from = 0; ; from += KNOWLEDGE_PAGE_SIZE) {
+    const { data, error } = await reader
+      .from("knowledge")
+      .select(columns)
+      .range(from, from + KNOWLEDGE_PAGE_SIZE - 1);
+
+    if (error) {
+      return { data: null, error };
+    }
+
+    const page = (data ?? []) as unknown as KnowledgeRow[];
+    rows.push(...page);
+
+    if (page.length < KNOWLEDGE_PAGE_SIZE) {
+      return { data: rows, error: null };
+    }
+  }
+}
 
 export type KnowledgeRow = {
   id?: string;
@@ -79,11 +127,55 @@ function parseEmbedding(
   }
 }
 
+const RETRIEVAL_STOP_WORDS = new Set([
+  "как",
+  "что",
+  "где",
+  "это",
+  "для",
+  "при",
+  "или",
+  "мне",
+  "мой",
+  "моя",
+  "мои",
+  "меня",
+  "нас",
+  "вас",
+  "все",
+  "так",
+  "его",
+  "она",
+  "они",
+  "если",
+  "можно",
+  "нужно",
+  "надо",
+  "есть",
+  "был",
+  "была",
+  "уже",
+  "еще",
+  "там",
+  "тут",
+  "подскажите",
+  "скажите",
+  "пожалуйста",
+]);
+
+// Crude Russian/Kazakh stemming: drop up to three trailing letters so that
+// "показания"/"показаний" or "квитанция"/"квитанцию" share one token.
+function stemToken(token: string) {
+  return token.length <= 5 ? token : token.slice(0, Math.max(5, token.length - 3));
+}
+
 export function tokenizeForRetrieval(text: string) {
   return text
     .toLowerCase()
+    .replace(/ё/g, "е")
     .split(/[^\p{L}\p{N}]+/u)
-    .filter((token) => token.length > 2);
+    .filter((token) => token.length > 2 && !RETRIEVAL_STOP_WORDS.has(token))
+    .map(stemToken);
 }
 
 function textOverlapScore(
@@ -134,12 +226,10 @@ export async function loadKnowledgeRows() {
     return knowledgeCache.rows;
   }
 
-  const initialResult = await supabase
-    .from("knowledge")
-    .select(
-      "id,title,category,content,embedding,priority,verified,source,language,status,metadata,content_hash"
-    );
-  let data = initialResult.data as KnowledgeRow[] | null;
+  const initialResult = await selectAllKnowledge(
+    "id,title,category,content,embedding,priority,verified,source,language,status,metadata,content_hash"
+  );
+  let data = initialResult.data;
   let error = initialResult.error;
 
   if (
@@ -150,17 +240,23 @@ export async function loadKnowledgeRows() {
       error.message?.includes("content_hash") ||
       error.message?.includes("metadata"))
   ) {
-    const fallback = await supabase
-      .from("knowledge")
-      .select("id,title,category,content,embedding,priority,verified,source");
+    const fallback = await selectAllKnowledge(
+      "id,title,category,content,embedding,priority,verified,source"
+    );
 
-    data = fallback.data as KnowledgeRow[] | null;
+    data = fallback.data;
     error = fallback.error;
   }
 
   if (error) {
     console.error("SUPABASE ERROR:", error);
     return [];
+  }
+
+  if ((data ?? []).length === 0) {
+    console.warn(
+      "KNOWLEDGE TABLE RETURNED 0 ROWS: check SUPABASE_SERVICE_ROLE_KEY and RLS on public.knowledge"
+    );
   }
 
   const rows = (data ?? []).reduce<
@@ -187,10 +283,13 @@ export async function loadKnowledgeRows() {
     return rows;
   }, []);
 
-  knowledgeCache = {
-    loadedAt: Date.now(),
-    rows,
-  };
+  // Do not keep an empty result for five minutes: it is usually a config error.
+  if (rows.length > 0) {
+    knowledgeCache = {
+      loadedAt: Date.now(),
+      rows,
+    };
+  }
 
   return rows;
 }

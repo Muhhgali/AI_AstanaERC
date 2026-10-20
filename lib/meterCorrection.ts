@@ -1,3 +1,5 @@
+import { hasPhrase, hasWord, hasWordPrefix } from "./textMatch";
+
 export type MeterCorrectionDraft = {
   accountNumber?: string;
   serviceType?: string;
@@ -99,22 +101,39 @@ function getServiceOptionsText(language: ChatLanguage) {
     .join(", ");
 }
 
-const INTENT_WORDS = [
+const METER_WORD_PREFIXES = [
+  "показан",
+  "счетчик",
+  "прибор",
+  "көрсеткіш",
+  "есептегіш",
+  "санауыш",
+];
+
+// Prefixes are matched against whole words only: the old substring check
+// treated "аз" inside "показания" as a correction request.
+const CORRECTION_WORD_PREFIXES = [
   "исправ",
   "коррект",
   "ошиб",
-  "не могу передать",
-  "не получается передать",
-  "меньше",
+  "неверн",
+  "неправильн",
   "повышен",
   "завышен",
   "түзет",
   "қате",
+  "өзгерт",
+];
+
+const CORRECTION_WORDS = ["меньше", "больше", "көп", "аз"];
+
+const CORRECTION_PHRASES = [
+  "не могу передать",
+  "не получается передать",
+  "не те показания",
   "дұрыс емес",
-  "өзгер",
   "жібере алма",
   "бере алма",
-  "көп",
 ];
 
 function normalize(text: string) {
@@ -130,49 +149,14 @@ export function getMeterCorrectionServiceLabel(value: string) {
 }
 
 export function isMeterCorrectionIntent(text: string) {
-  const normalized = normalize(text);
-  const hasPlainMeter =
-    normalized.includes("показан") ||
-    normalized.includes("счетчик") ||
-    normalized.includes("счётчик") ||
-    normalized.includes("прибор") ||
-    normalized.includes("көрсеткіш") ||
-    normalized.includes("есептегіш") ||
-    normalized.includes("санауыш");
-  const hasPlainCorrectionIntent = [
-    "исправ",
-    "коррект",
-    "ошиб",
-    "не могу передать",
-    "не получается передать",
-    "меньше",
-    "повышен",
-    "завышен",
-    "неверн",
-    "неправильн",
-    "түзет",
-    "қате",
-    "дұрыс емес",
-    "өзгер",
-    "жібере алма",
-    "бере алма",
-    "көп",
-    "аз",
-  ].some((word) => normalized.includes(word));
-
-  if (hasPlainMeter && hasPlainCorrectionIntent) {
-    return true;
+  if (!hasWordPrefix(text, METER_WORD_PREFIXES)) {
+    return false;
   }
 
   return (
-    (normalized.includes("показан") ||
-      normalized.includes("счетчик") ||
-      normalized.includes("счётчик") ||
-      normalized.includes("прибор") ||
-      normalized.includes("көрсеткіш") ||
-      normalized.includes("есептегіш") ||
-      normalized.includes("санауыш")) &&
-    INTENT_WORDS.some((word) => normalized.includes(word))
+    hasWordPrefix(text, CORRECTION_WORD_PREFIXES) ||
+    hasWord(text, CORRECTION_WORDS) ||
+    hasPhrase(text, CORRECTION_PHRASES)
   );
 }
 

@@ -59,6 +59,7 @@ import {
   buildEpdEarlyPaymentDifferenceAnswer,
   isEpdEarlyPaymentDifferenceIntent,
 } from "@/lib/epdEarlyPaymentDifference";
+import { hasPhrase, hasWord, hasWordPrefix } from "@/lib/textMatch";
 
 let openai: OpenAI | null = null;
 let adminSupabase: ReturnType<typeof createClient<any>> | null = null;
@@ -114,6 +115,13 @@ const CHAT_CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CHAT_CACHE_ITEMS = 100;
 const MAX_GPT_HISTORY_MESSAGES = 8;
 const MAX_USER_MESSAGE_LENGTH = 2000;
+const MAX_ANSWER_LENGTH = 1500;
+const CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || "gpt-4.1";
+const CHAT_MAX_TOKENS = 700;
+// Owner switch: "true" lets unverified (draft) knowledge rows into the answer
+// context. Off by default so the bot only repeats facts a person has confirmed.
+const ALLOW_UNVERIFIED_CONTEXT =
+  process.env.RAG_ALLOW_UNVERIFIED_CONTEXT === "true";
 
 type CachedChatAnswer = {
   message: string;
@@ -125,12 +133,32 @@ type CachedChatAnswer = {
 
 const chatAnswerCache = new Map<string, CachedChatAnswer>();
 
-function getChatCacheKey(question: string, language: ChatLanguage) {
-  return `${language}:${question.replace(/\s+/g, " ").trim().toLowerCase()}`;
+function getChatCacheKey(
+  question: string,
+  language: ChatLanguage,
+  dialogContext: string
+) {
+  const normalize = (text: string) =>
+    text.replace(/\s+/g, " ").trim().toLowerCase();
+
+  // The previous turns are part of the key: "а сколько?" means different things
+  // in different conversations and must not reuse another visitor's answer.
+  return `${language}:${normalize(dialogContext).slice(0, 600)}:${normalize(question)}`;
 }
 
-function getCachedChatAnswer(question: string, language: ChatLanguage) {
-  const cacheKey = getChatCacheKey(question, language);
+function getDialogContextKey(messages: ChatBodyMessage[]) {
+  return messages
+    .slice(-3, -1)
+    .map((message) => `${message.role}:${message.content ?? ""}`)
+    .join("|");
+}
+
+function getCachedChatAnswer(
+  question: string,
+  language: ChatLanguage,
+  dialogContext: string
+) {
+  const cacheKey = getChatCacheKey(question, language, dialogContext);
   const cached = chatAnswerCache.get(cacheKey);
 
   if (!cached) {
@@ -148,9 +176,10 @@ function getCachedChatAnswer(question: string, language: ChatLanguage) {
 function setCachedChatAnswer(
   question: string,
   language: ChatLanguage,
+  dialogContext: string,
   answer: Omit<CachedChatAnswer, "createdAt">
 ) {
-  const cacheKey = getChatCacheKey(question, language);
+  const cacheKey = getChatCacheKey(question, language, dialogContext);
 
   chatAnswerCache.set(cacheKey, {
     ...answer,
@@ -503,14 +532,14 @@ function buildUncertainAnswer(
     return [
       "Бұл сұрақ бойынша базада әзірге расталған ақпарат жоқ.",
       "Қате мәлімет бермеу үшін жауапты ойдан шығармаймын.",
-      "Сұрақ білім базасын толықтыру үшін белгіленді.",
+      "Сұрақ білім базасын толықтыру үшін белгіленді. Жауап қазір керек болса, төмендегі байланыстарды пайдаланыңыз немесе сұрақты басқаша жазып көріңіз.",
     ].join("\n");
   }
 
   return [
     "В базе пока нет подтверждённой информации по этому вопросу.",
     "Я не буду придумывать ответ, чтобы не дать неверные данные.",
-    "Вопрос зафиксирован для дополнения базы знаний.",
+    "Вопрос зафиксирован для дополнения базы знаний. Если ответ нужен сейчас, воспользуйтесь контактами ниже или попробуйте сформулировать вопрос иначе.",
   ].join("\n");
 }
 
@@ -690,8 +719,12 @@ function buildSmallTalkAnswer(
 function hasPromptSafetySignal(question: string) {
   const normalized = normalizeRu(question);
 
+  // Not plain "системн": "системная ошибка на сайте" is a normal support question.
   return [
-    "системн",
+    "системный промпт",
+    "системный prompt",
+    "системные инструк",
+    "системную инструк",
     "system prompt",
     "system instructions",
     "покажи промт",
@@ -720,148 +753,53 @@ function buildPromptSafetyAnswer(language: ChatLanguage) {
 }
 
 function isTechnicalSupportQuestion(question: string) {
-  const normalized = normalizeRu(question);
-  const hasPlainIssue = [
-    "ошибка",
-    "не открывается",
-    "не работает",
-    "не отправ",
-    "не приходит",
-    "не могу",
-    "завис",
-    "слом",
-    "қате",
-    "ашылмай",
-    "жұмыс істем",
-    "жіберілмей",
-    "келмей",
-    "кіре алма",
-    "істемей",
-  ].some((word) => normalized.includes(word));
-  const hasPlainDigitalSurface = [
-    "сайт",
-    "личный кабинет",
-    "кабинет",
-    "прилож",
-    "виджет",
-    "чат",
-    "бот",
-    "форма",
-    "авторизац",
-    "логин",
-    "пароль",
-    "смс",
-    "sms",
-    "qr",
-    "жеке кабинет",
-    "қосымша",
-    "құпиясөз",
-  ].some((word) => normalized.includes(word));
-  const hasPlainLoginIssue = [
-    "авторизац",
-    "войти",
-    "логин",
-    "пароль",
-    "смс",
-    "sms",
-    "кіру",
-    "құпиясөз",
-  ].some((word) => normalized.includes(word));
-
-  if ((hasPlainIssue && hasPlainDigitalSurface) || hasPlainLoginIssue) {
-    return true;
-  }
-  const hasIssue = [
-    "ошибка",
-    "не открывается",
-    "не работает",
-    "не отправ",
-    "не приходит",
-    "не могу",
-    "завис",
-    "слом",
-    "қате",
-    "ашылмай",
-    "жұмыс істем",
-    "жіберілмей",
-    "келмей",
-    "кіре алма",
-    "істемей",
-  ].some((word) => normalized.includes(word));
-
-  const hasDigitalSurface = [
-    "сайт",
-    "личный кабинет",
-    "кабинет",
-    "прилож",
-    "виджет",
-    "чат",
-    "бот",
-    "форма",
-    "авторизац",
-    "логин",
-    "пароль",
-    "смс",
-    "sms",
-    "qr",
-    "сайт",
-    "жеке кабинет",
-    "кабинет",
-    "қосымша",
-    "виджет",
-    "чат",
-    "бот",
-    "форма",
-    "авторизация",
-    "логин",
-    "құпиясөз",
-  ].some((word) => normalized.includes(word));
-
-  const hasLoginIssue = [
-    "авторизац",
-    "войти",
-    "логин",
-    "пароль",
-    "смс",
-    "sms",
-    "кіру",
-    "құпиясөз",
-  ].some((word) => normalized.includes(word));
+  // Word-based: "бот" is inside "работает", "форма" inside "информация",
+  // "чат" inside "получать", so substring checks flagged ordinary questions.
+  const hasIssue =
+    hasPhrase(question, [
+      "не открывается",
+      "не работает",
+      "не отправ",
+      "не приходит",
+      "не могу",
+      "не загруж",
+      "жұмыс істем",
+      "кіре алма",
+    ]) ||
+    hasWordPrefix(question, [
+      "ошибк",
+      "завис",
+      "слома",
+      "қате",
+      "ашылмай",
+      "жіберілмей",
+      "келмей",
+      "істемей",
+    ]);
+  const hasDigitalSurface =
+    hasWordPrefix(question, [
+      "сайт",
+      "кабинет",
+      "прилож",
+      "виджет",
+      "чат",
+      "бот",
+      "форм",
+      "авторизац",
+      "логин",
+      "парол",
+      "қосымша",
+      "құпиясөз",
+    ]) || hasWord(question, ["смс", "sms", "qr"]);
+  const hasLoginIssue =
+    hasWordPrefix(question, ["авторизац", "войти", "логин", "парол", "құпиясөз"]) ||
+    hasWord(question, ["кіру", "смс", "sms"]);
 
   return (hasIssue && hasDigitalSurface) || hasLoginIssue;
 }
 
 function isExplicitSupportRequest(question: string) {
   const normalized = normalizeRu(question);
-
-  if (
-    [
-      "109",
-      "кала кыз",
-      "калакыз",
-      "qala",
-      "qyzmet",
-      "телефон",
-      "контакт",
-      "куда обратиться",
-      "к кому обратиться",
-      "поддержк",
-      "адрес",
-      "офис",
-      "жалоб",
-      "обращен",
-      "whatsapp",
-      "ватсап",
-      "қайда жүгін",
-      "кімге жүгін",
-      "байланыс",
-      "мекенжай",
-      "өтініш",
-      "маман",
-    ].some((word) => normalized.includes(word))
-  ) {
-    return true;
-  }
 
   return [
     "109",
@@ -914,63 +852,68 @@ function getSupportCardIfNeeded(
 }
 
 function isOperatorHandoffIntent(question: string) {
-  const normalized = normalizeRu(question);
-
-  if (
-    [
-      "оператор",
-      "живой человек",
-      "живого человека",
-      "соедините",
-      "переключите",
-      "специалист",
-      "сотрудник",
-      "менеджер поддержки",
-      "хочу поговорить",
-      "позовите",
-      "оператор керек",
-      "маман керек",
-      "тірі адам",
-      "қызметкер",
-      "байланыстыр",
-    ].some((phrase) => normalized.includes(phrase))
-  ) {
-    return true;
-  }
-
-  return [
-    "оператор",
+  // A bare "специалист"/"сотрудник"/"оператор" is not a handoff request:
+  // "до скольки работают операторы" or "сотрудник сказал..." are questions.
+  const asksForPerson = hasPhrase(question, [
     "живой человек",
     "живого человека",
+    "живым человеком",
     "соедините",
     "переключите",
-    "специалист",
-    "сотрудник",
-    "менеджер поддержки",
-    "хочу поговорить",
     "позовите",
+    "хочу поговорить",
+    "свяжите меня",
+    "связаться с оператор",
+    "связаться со специалист",
+    "связаться с сотрудник",
+    "нужен оператор",
+    "нужен специалист",
+    "нужен сотрудник",
+    "позвать оператор",
+    "передайте оператор",
+    "менеджер поддержки",
     "оператор керек",
     "маман керек",
     "тірі адам",
-    "қызметкер",
     "байланыстыр",
-  ].some((phrase) => normalized.includes(phrase));
+  ]);
+  const isBareOperatorRequest =
+    hasWordPrefix(question, ["оператор"]) &&
+    !hasWordPrefix(question, ["график", "режим", "работа", "телефон", "номер"]) &&
+    !hasPhrase(question, ["до скольки", "во сколько"]);
+
+  return asksForPerson || isBareOperatorRequest;
 }
 
 function isAppealFormIntent(question: string) {
   const normalized = normalizeRu(question);
 
-  const hasAppealWord = [
-    "обращен",
-    "обращение",
-    "жалоб",
-    "заявление",
-    "оставить заявку",
-    "написать заявку",
-    "претензи",
-    "өтініш",
-    "шағым",
-  ].some((phrase) => normalized.includes(phrase));
+  const hasAppealWord =
+    hasWordPrefix(question, [
+      "обращени",
+      "жалоб",
+      "заявлени",
+      "претензи",
+      "өтініш",
+      "шағым",
+    ]) ||
+    hasPhrase(question, [
+      "оставить заявку",
+      "написать заявку",
+      "подать заявку",
+    ]);
+  // Status checks and questions about an existing appeal are answered from
+  // the knowledge base instead of opening a new appeal form.
+  const asksAboutExistingAppeal = hasWordPrefix(question, [
+    "статус",
+    "провер",
+    "рассмотр",
+    "срок",
+  ]) || hasPhrase(question, ["мое обращение", "моё обращение", "ответ на обращение", "номер обращения"]);
+
+  if (asksAboutExistingAppeal) {
+    return false;
+  }
   const hasLeadershipWord = [
     "руковод",
     "директор",
@@ -1022,7 +965,39 @@ function isKaspiPaymentIntent(question: string) {
     "төлем",
   ].some((phrase) => normalized.includes(phrase));
 
-  return hasKaspi && hasPayment;
+  // "оплатил через Kaspi, но не отразилось" is a problem report, not "can I pay via Kaspi".
+  return hasKaspi && hasPayment && !hasPaymentProblem(question);
+}
+
+function hasPaymentProblem(question: string) {
+  return (
+    hasPhrase(question, [
+      "не прош",
+      "не отраз",
+      "не зачисл",
+      "не поступ",
+      "не учли",
+      "не видно",
+      "два раза",
+      "екі рет",
+    ]) ||
+    hasWordPrefix(question, [
+      "ошиб",
+      "вернуть",
+      "возврат",
+      "двойн",
+      "дважды",
+      "пеня",
+      "пени",
+      "задолж",
+      "долг",
+      "өтпе",
+      "көрінбе",
+      "түспе",
+      "қайтар",
+      "қате",
+    ])
+  );
 }
 
 function isPaymentGuidanceIntent(question: string) {
@@ -1037,18 +1012,7 @@ function isPaymentGuidanceIntent(question: string) {
     "төлем",
     "төле",
   ].some((phrase) => normalized.includes(phrase));
-  const hasProblem = [
-    "ошиб",
-    "не прош",
-    "не отраз",
-    "вернуть",
-    "возврат",
-    "двойн",
-    "пеня",
-    "задолж",
-  ].some((phrase) => normalized.includes(phrase));
-
-  return hasPayment && !hasProblem;
+  return hasPayment && !hasPaymentProblem(question);
 }
 
 function buildAppealFormIntro(language: ChatLanguage) {
@@ -1080,14 +1044,14 @@ function buildPaymentGuidanceAnswer(language: ChatLanguage) {
     return [
       "ЕПД-ны онлайн-банкинг, банк қосымшалары, төлем терминалдары немесе банк кассалары арқылы төлеуге болады.",
       "Төлем кезінде түбіртектегі дербес шотты және соманы дұрыс көрсетіңіз.",
-      "Егер төлемнің ЕПД-да қашан көрінетіні керек болса, ол бойынша бөлек verified ереже қажет.",
+      "Төлемнің ЕПД-да қашан көрінетіні бойынша расталған мерзім әзірге жоқ, сондықтан оны болжамаймын.",
     ].join("\n");
   }
 
   return [
     "ЕПД можно оплатить через онлайн-банкинг, мобильные приложения банков, платежные терминалы или банковские кассы.",
     "При оплате проверьте лицевой счет и сумму из квитанции.",
-    "Если нужно понять, когда платёж отразится в ЕПД, для этого нужно отдельное verified-правило; я не буду придумывать срок.",
+    "Подтверждённого срока, когда платёж отражается в ЕПД, у меня пока нет, поэтому я не буду его называть.",
   ].join("\n");
 }
 
@@ -1116,14 +1080,14 @@ function isLatePaymentReflectionQuestion(question: string) {
 function buildLatePaymentReflectionAnswer(language: ChatLanguage) {
   if (language === "kk") {
     return [
-      "Verified базада төлемнің 25-інен кейін ЕПД-да қашан көрінетіні туралы нақты ереже жоқ.",
+      "25-інен кейінгі төлемнің ЕПД-да қашан көрінетіні туралы расталған ереже әзірге жоқ.",
       "Сондықтан мен төлем міндетті түрде келесі кезеңде есептеледі деп айта алмаймын.",
       "Тексеру үшін ЕПД мен банк чегін жүктеңіз немесе төлем күні, сома және дербес шот бойынша қолдау қызметіне нақтылау керек.",
     ].join("\n");
   }
 
   return [
-    "В verified-базе нет точного правила, когда платёж после 25 числа должен отразиться в ЕПД.",
+    "Подтверждённого правила, когда платёж после 25 числа отражается в ЕПД, у меня пока нет.",
     "Поэтому я не буду утверждать, что он автоматически попадёт в следующий период.",
     "Для проверки нужны ЕПД и банковский чек либо сверка по дате платежа, сумме и лицевому счёту в поддержке.",
   ].join("\n");
@@ -1164,40 +1128,34 @@ function buildEpdDefinitionAnswer(language: ChatLanguage) {
 }
 
 function isMeterReadingSubmissionIntent(question: string) {
-  const normalized = normalizeRu(question);
-  const hasMeter =
-    normalized.includes("показан") ||
-    normalized.includes("счетчик") ||
-    normalized.includes("счетчик") ||
-    normalized.includes("прибор") ||
-    normalized.includes("көрсеткіш") ||
-    normalized.includes("есептегіш") ||
-    normalized.includes("санауыш");
-  const hasSubmitIntent = [
-    "передать",
-    "сдать",
-    "отправить",
-    "куда",
-    "как",
-    "қалай",
-    "қайда",
-    "жібер",
-    "беру",
-  ].some((phrase) => normalized.includes(phrase));
-  const hasCorrectionIntent = [
-    "исправ",
-    "коррект",
-    "ошиб",
-    "неверн",
-    "неправильн",
-    "не приняли",
-    "не попали",
-    "түзет",
-    "қате",
-    "дұрыс емес",
-  ].some((phrase) => normalized.includes(phrase));
+  const hasMeter = hasWordPrefix(question, [
+    "показан",
+    "счетчик",
+    "прибор",
+    "көрсеткіш",
+    "есептегіш",
+    "санауыш",
+  ]);
+  const hasSubmitIntent =
+    hasWordPrefix(question, [
+      "переда",
+      "передат",
+      "сдат",
+      "сдаю",
+      "сдава",
+      "отправ",
+      "внест",
+      "внес",
+      "подат",
+      "жібер",
+    ]) || hasWord(question, ["куда", "когда", "қайда", "қашан", "беру", "беруге"]);
+  // Questions about charges or a rejected/incorrect reading need a different answer.
+  const isOtherMeterQuestion =
+    isMeterCorrectionIntent(question) ||
+    hasWordPrefix(question, ["почему", "начисл", "сумм", "перерасч", "тариф"]) ||
+    hasPhrase(question, ["не приняли", "не попали", "не принял"]);
 
-  return hasMeter && hasSubmitIntent && !hasCorrectionIntent;
+  return hasMeter && hasSubmitIntent && !isOtherMeterQuestion;
 }
 
 function buildMeterReadingSubmissionAnswer(language: ChatLanguage) {
@@ -1217,34 +1175,22 @@ function buildMeterReadingSubmissionAnswer(language: ChatLanguage) {
 }
 
 function isSupplierManagerLookupHelpIntent(question: string) {
-  const normalized = normalizeRu(question);
-  const hasSupplierContext = [
-    "поставщик",
-    "поставщика",
-    "менеджер",
-    "менеджера",
-    "куратор",
-    "ответственный",
-    "бин",
-    "код",
-    "договор",
-    "жабдықтаушы",
-    "жеткізуші",
-    "менеджері",
-    "бсн",
-  ].some((phrase) => normalized.includes(phrase));
-  const hasHowToIntent = [
-    "как",
-    "найти",
-    "узнать",
-    "показать",
-    "подскажи",
-    "что нужно",
-    "қалай",
-    "қайдан",
-    "табу",
-    "көрсет",
-  ].some((phrase) => normalized.includes(phrase));
+  // Whole words only: "бин" is inside "кабинет", so "Как войти в личный
+  // кабинет?" used to get the supplier lookup instructions.
+  const hasSupplierContext =
+    hasWordPrefix(question, [
+      "поставщик",
+      "менеджер",
+      "куратор",
+      "жабдықтаушы",
+      "жеткізуші",
+    ]) ||
+    hasWord(question, ["бин", "бсн"]) ||
+    hasPhrase(question, ["код поставщика"]);
+  const hasHowToIntent =
+    hasWord(question, ["как", "какие", "кто", "қалай", "қайдан", "кім"]) ||
+    hasWordPrefix(question, ["найти", "узнать", "показ", "подскаж", "табу", "көрсет"]) ||
+    hasPhrase(question, ["что нужно"]);
 
   return hasSupplierContext && hasHowToIntent;
 }
@@ -1279,6 +1225,69 @@ function buildOperatorHandoffAnswer(language: ChatLanguage) {
     "В админке он появится в отдельной очереди: специалист сможет принять, закрыть или передать дальше.",
     "Если вопрос технический, напишите в WhatsApp на +7-777-003-3013. Номер только для сообщений, звонки не принимаются.",
   ].join("\n");
+}
+
+type FallbackGuidance = {
+  message: string;
+  source: string;
+  // Log to knowledge gaps so the team can add a verified article.
+  logGap: boolean;
+};
+
+// Canned answers used only after the knowledge base found nothing verified.
+function findFallbackGuidance(
+  question: string,
+  language: ChatLanguage
+): FallbackGuidance | null {
+  if (!METER_CORRECTION_ENABLED && isMeterCorrectionIntent(question)) {
+    return {
+      message: meterCorrectionUnavailableMessage(language),
+      source: "meter-correction-unavailable",
+      logGap: true,
+    };
+  }
+
+  if (isEpdDefinitionIntent(question)) {
+    return {
+      message: buildEpdDefinitionAnswer(language),
+      source: "epd-guidance",
+      logGap: false,
+    };
+  }
+
+  if (isMeterReadingSubmissionIntent(question)) {
+    return {
+      message: buildMeterReadingSubmissionAnswer(language),
+      source: "meter-reading-guidance",
+      logGap: false,
+    };
+  }
+
+  if (isKaspiPaymentIntent(question)) {
+    return {
+      message: buildKaspiPaymentAnswer(language),
+      source: "payment-guidance",
+      logGap: false,
+    };
+  }
+
+  if (isLatePaymentReflectionQuestion(question)) {
+    return {
+      message: buildLatePaymentReflectionAnswer(language),
+      source: "verified-gap",
+      logGap: true,
+    };
+  }
+
+  if (isPaymentGuidanceIntent(question)) {
+    return {
+      message: buildPaymentGuidanceAnswer(language),
+      source: "payment-guidance",
+      logGap: false,
+    };
+  }
+
+  return null;
 }
 
 function isLatePaymentDoubleChargeIntent(question: string) {
@@ -1331,73 +1340,27 @@ function isLatePaymentDoubleChargeIntent(question: string) {
     normalized.includes("шот") ||
     normalized.includes("сома");
 
-  if (hasPlainDoubleAmount && hasPlainPaymentOrReceipt) {
-    return true;
-  }
-  const hasDoubleAmount =
-    normalized.includes("двойн") ||
-    normalized.includes("двойной счет") ||
-    normalized.includes("двойной счёт") ||
-    normalized.includes("две суммы") ||
-    normalized.includes("2 суммы") ||
-    normalized.includes("сумма больше") ||
-    normalized.includes("за два месяц") ||
-    normalized.includes("за 2 месяц") ||
-    normalized.includes("за нужн") ||
-    normalized.includes("только за месяц") ||
-    normalized.includes("только за нужн") ||
-    normalized.includes("только нужн") ||
-    normalized.includes("только разниц") ||
-    normalized.includes("оплатить разниц") ||
-    normalized.includes("чек об оплат") ||
-    normalized.includes("есть чек") ||
-    normalized.includes("имеется чек") ||
-    normalized.includes("поздно оплат") ||
-    normalized.includes("поздняя оплат") ||
-    normalized.includes("много пришл") ||
-    normalized.includes("не сел") ||
-    normalized.includes("не села") ||
-    normalized.includes("не учли") ||
-    normalized.includes("не зачел") ||
-    normalized.includes("не зачисл") ||
-    normalized.includes("екі есе") ||
-    normalized.includes("екі сома") ||
-    normalized.includes("екі төлем") ||
-    normalized.includes("сома көп") ||
-    normalized.includes("артық кел") ||
-    normalized.includes("ескерілм") ||
-    normalized.includes("түспе");
-  const hasPaymentOrReceipt =
-    normalized.includes("оплат") ||
-    normalized.includes("квитанц") ||
-    normalized.includes("епд") ||
-    normalized.includes("счет") ||
-    normalized.includes("сумм") ||
-    normalized.includes("пришл") ||
-    normalized.includes("төле") ||
-    normalized.includes("төлем") ||
-    normalized.includes("түбіртек") ||
-    normalized.includes("шот") ||
-    normalized.includes("сома");
-
-  return hasDoubleAmount && hasPaymentOrReceipt;
+  return hasPlainDoubleAmount && hasPlainPaymentOrReceipt;
 }
 
 function cleanAndFormatResponse(message: string, language: ChatLanguage): string {
-  // Remove extra whitespace
+  // Keep line breaks: the prompt asks for numbered lists, and the old
+  // `/\s+/g -> " "` collapsed every list into one long line.
   let cleaned = message
-    .replace(/\n\n\n+/g, "\n\n") // Multiple newlines -> double newline
-    .replace(/\s+/g, " ") // Multiple spaces -> single space
-    .replace(/\n /g, "\n") // Newline + space -> just newline
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\*\*(.+?)\*\*/g, "$1")
     .trim();
 
-  // Remove redundant introductions
+  // Strip meta introductions only when they are a separate lead-in phrase,
+  // never a subject like "Астана ЕРЦ принимает...".
   const redundantStarts = language === "kk"
     ? [
         "Базадағы ақпарат бойынша",
-        "Астана ЕРЦ бойынша",
         "Ақпараттар бойынша",
-        "Өтініш",
         "Түсіндім",
       ]
     : [
@@ -1412,57 +1375,39 @@ function cleanAndFormatResponse(message: string, language: ChatLanguage): string
         "По информации из базы",
         "По данным базы",
         "Согласно базе",
-        "Астана ЕРЦ",
-        "Информация",
-        "Кратко",
       ];
 
-  // If message starts with redundant phrase, try to skip it
   for (const phrase of redundantStarts) {
-    if (cleaned.toLowerCase().startsWith(phrase.toLowerCase())) {
-      const withoutPhrase = cleaned.substring(phrase.length).trim();
-      // Only replace if result is substantial enough
-      if (withoutPhrase.length > cleaned.length * 0.7) {
-        cleaned = withoutPhrase;
-        break;
+    const lead = cleaned.slice(0, phrase.length + 1).toLowerCase();
+
+    if (
+      lead.startsWith(phrase.toLowerCase()) &&
+      /[,:.\s—-]/.test(cleaned.charAt(phrase.length))
+    ) {
+      const withoutPhrase = cleaned
+        .substring(phrase.length)
+        .replace(/^[\s,:.—-]+/, "");
+
+      if (withoutPhrase.length > 20) {
+        cleaned = withoutPhrase.charAt(0).toUpperCase() + withoutPhrase.slice(1);
       }
+
+      break;
     }
   }
 
-  // Fix list formatting: ensure proper line breaks before bullets
-  cleaned = cleaned.replace(/([.!?])\s+([•\-\*])/g, "$1\n$2");
-  cleaned = cleaned.replace(/:\s+([•\-\*])/g, ":\n$1");
+  if (cleaned.length > MAX_ANSWER_LENGTH) {
+    const cut = cleaned.substring(0, MAX_ANSWER_LENGTH);
+    const lastBoundary = Math.max(
+      cut.lastIndexOf("\n"),
+      cut.lastIndexOf(". "),
+      cut.lastIndexOf(".\n")
+    );
 
-  // Ensure proper sentence casing
-  const sentences = cleaned.split(/([.!?]\s+)/);
-  cleaned = sentences
-    .map((s, i) => {
-      if (i % 2 === 0 && s.length > 0) {
-        // Capitalize first letter of sentence
-        return s.charAt(0).toUpperCase() + s.slice(1);
-      }
-      return s;
-    })
-    .join("");
-
-  // Remove duplicate sentences
-  const sentences_unique = cleaned.split(/[.!?]\s+/).filter((s) => s.trim().length > 0);
-  const unique = Array.from(new Set(sentences_unique.map((s) => s.trim())));
-  
-  // If we have many duplicates removed, use unique version
-  if (unique.length < sentences_unique.length * 0.8) {
-    cleaned = unique.join(". ") + ".";
-  }
-
-  // Ensure max length (if AI got too verbose)
-  const maxLength = 800;
-  if (cleaned.length > maxLength) {
-    cleaned = cleaned.substring(0, maxLength).trim();
-    // Find last complete sentence
-    const lastDot = cleaned.lastIndexOf(".");
-    if (lastDot > maxLength * 0.7) {
-      cleaned = cleaned.substring(0, lastDot + 1);
-    }
+    cleaned =
+      lastBoundary > MAX_ANSWER_LENGTH * 0.6
+        ? cut.substring(0, lastBoundary + 1).trim()
+        : cut.trim();
   }
 
   return cleaned;
@@ -2016,17 +1961,22 @@ export async function POST(req: Request) {
       bodyObj?.language === "kk" || bodyObj?.language === "ru"
         ? (bodyObj.language as ChatLanguage)
         : undefined;
-    const responseLanguage = requestedLanguage ?? detectChatLanguage(lastMessage);
+    // The UI always sends its language switch (default "ru"). A message typed in
+    // Kazakh still gets a Kazakh answer.
+    const responseLanguage: ChatLanguage =
+      detectChatLanguage(lastMessage) === "kk"
+        ? "kk"
+        : requestedLanguage ?? "ru";
+    const dialogContextKey = getDialogContextKey(messages);
     const submittedMeterCorrection =
       typeof bodyObj?.meterCorrection === "object" && bodyObj.meterCorrection
         ? (bodyObj.meterCorrection as MeterCorrectionFormPayload)
         : null;
     const userMessages = messages.filter((message) => message.role === "user");
 
-    if (
-      !METER_CORRECTION_ENABLED &&
-      (submittedMeterCorrection || isMeterCorrectionIntent(lastMessage))
-    ) {
+    // Typed correction questions go through the knowledge base first and only
+    // fall back to this message when there is no verified answer.
+    if (!METER_CORRECTION_ENABLED && submittedMeterCorrection) {
       const assistantMessage = meterCorrectionUnavailableMessage(responseLanguage);
       const saved = await saveTurn({
         conversationId,
@@ -2221,75 +2171,9 @@ export async function POST(req: Request) {
       });
     }
 
-    if (isEpdDefinitionIntent(lastMessage)) {
-      const assistantMessage = buildEpdDefinitionAnswer(responseLanguage);
-      const saved = await saveTurn({
-        conversationId,
-        visitorId,
-        userMessage: lastMessage,
-        assistantMessage,
-        source: "epd-guidance",
-      });
-
-      return jsonResponse({
-        message: assistantMessage,
-        source: "epd-guidance",
-        conversationId: saved.conversationId,
-        messageId: saved.messageId,
-        suggestedQuestions: buildSuggestedQuestions({
-          question: lastMessage,
-          source: "epd-guidance",
-          language: responseLanguage,
-        }),
-      });
-    }
-
-    if (isMeterReadingSubmissionIntent(lastMessage)) {
-      const assistantMessage =
-        buildMeterReadingSubmissionAnswer(responseLanguage);
-      const saved = await saveTurn({
-        conversationId,
-        visitorId,
-        userMessage: lastMessage,
-        assistantMessage,
-        source: "meter-reading-guidance",
-      });
-
-      return jsonResponse({
-        message: assistantMessage,
-        source: "meter-reading-guidance",
-        conversationId: saved.conversationId,
-        messageId: saved.messageId,
-        suggestedQuestions: buildSuggestedQuestions({
-          question: lastMessage,
-          source: "meter-reading-guidance",
-          language: responseLanguage,
-        }),
-      });
-    }
-
-    if (isKaspiPaymentIntent(lastMessage)) {
-      const assistantMessage = buildKaspiPaymentAnswer(responseLanguage);
-      const saved = await saveTurn({
-        conversationId,
-        visitorId,
-        userMessage: lastMessage,
-        assistantMessage,
-        source: "payment-guidance",
-      });
-
-      return jsonResponse({
-        message: assistantMessage,
-        source: "payment-guidance",
-        conversationId: saved.conversationId,
-        messageId: saved.messageId,
-        suggestedQuestions: buildSuggestedQuestions({
-          question: lastMessage,
-          source: "payment-guidance",
-          language: responseLanguage,
-        }),
-      });
-    }
+    // Informational canned answers (ЕПД, показания, Kaspi, оплата) are no longer
+    // returned here. They pre-empted the knowledge base even when it had a more
+    // precise verified article; see findFallbackGuidance below.
 
     if (isAppealFormIntent(lastMessage)) {
       const assistantMessage = buildAppealFormIntro(responseLanguage);
@@ -2573,61 +2457,65 @@ export async function POST(req: Request) {
       });
     }
 
-    if (isLatePaymentReflectionQuestion(lastMessage)) {
-      const assistantMessage = buildLatePaymentReflectionAnswer(responseLanguage);
+    const retrievalTraceEnabled =
+      process.env.DEBUG_RETRIEVAL === "true" &&
+      process.env.NODE_ENV !== "production";
+    let retrievalTraceForResponse: unknown;
+
+    // Used when the knowledge base has no verified answer: a canned rule if one
+    // fits, otherwise the honest "нет подтверждённой информации" reply.
+    const answerWithoutKnowledge = async (params: {
+      reason: KnowledgeGapReason;
+      topSimilarity?: number;
+      category?: string | null;
+    }) => {
+      const fallback = findFallbackGuidance(lastMessage, responseLanguage);
+      const supportCard =
+        getSupportCardIfNeeded(lastMessage, responseLanguage) ??
+        (fallback ? undefined : GENERAL_SUPPORT_CARDS[responseLanguage]);
+      const assistantMessage =
+        fallback?.message ?? buildUncertainAnswer(true, responseLanguage);
+      const source = fallback?.source ?? "uncertain";
       const saved = await saveTurn({
         conversationId,
         visitorId,
         userMessage: lastMessage,
         assistantMessage,
-        source: "verified-gap",
+        source,
       });
 
-      await saveKnowledgeGap({
-        conversationId: saved.conversationId,
-        assistantMessageId: saved.messageId,
-        userQuestion: lastMessage,
-        assistantAnswer: assistantMessage,
-        reason: "gpt-answer",
-      });
+      if (!fallback || fallback.logGap) {
+        await saveKnowledgeGap({
+          conversationId: saved.conversationId,
+          assistantMessageId: saved.messageId,
+          userQuestion: lastMessage,
+          assistantAnswer: assistantMessage,
+          reason: params.reason,
+          topSimilarity: params.topSimilarity,
+        });
+      }
 
       return jsonResponse({
         message: assistantMessage,
-        source: "verified-gap",
+        source,
         conversationId: saved.conversationId,
         messageId: saved.messageId,
         suggestedQuestions: buildSuggestedQuestions({
           question: lastMessage,
-          source: "uncertain",
+          source,
+          category: params.category ?? undefined,
           language: responseLanguage,
         }),
+        supportCard,
+        retrievalTrace: retrievalTraceForResponse,
       });
-    }
+    };
 
-    if (isPaymentGuidanceIntent(lastMessage)) {
-      const assistantMessage = buildPaymentGuidanceAnswer(responseLanguage);
-      const saved = await saveTurn({
-        conversationId,
-        visitorId,
-        userMessage: lastMessage,
-        assistantMessage,
-        source: "payment-guidance",
-      });
-
-      return jsonResponse({
-        message: assistantMessage,
-        source: "payment-guidance",
-        conversationId: saved.conversationId,
-        messageId: saved.messageId,
-        suggestedQuestions: buildSuggestedQuestions({
-          question: lastMessage,
-          source: "payment-guidance",
-          language: responseLanguage,
-        }),
-      });
-    }
-
-    const cachedAnswer = getCachedChatAnswer(lastMessage, responseLanguage);
+    const cachedAnswer = getCachedChatAnswer(
+      lastMessage,
+      responseLanguage,
+      dialogContextKey
+    );
 
     if (cachedAnswer) {
       const saved = await saveTurn({
@@ -2655,10 +2543,6 @@ export async function POST(req: Request) {
 
     let results: KnowledgeSearchResult[] | null = null;
     let resultsAreVerifiedRagContext = false;
-    const retrievalTraceEnabled =
-      process.env.DEBUG_RETRIEVAL === "true" &&
-      process.env.NODE_ENV !== "production";
-    let retrievalTraceForResponse: unknown;
 
     if (process.env.RAG_PIPELINE_VERSION !== "legacy") {
       const retrieval = await retrieveKnowledgeV2({
@@ -2706,41 +2590,16 @@ export async function POST(req: Request) {
       }
 
       const verifiedContext = retrieval.selectedContext.filter(
-        (candidate) => candidate.verified
+        (candidate) => ALLOW_UNVERIFIED_CONTEXT || candidate.verified
       );
 
       if (retrieval.query.isOutOfDomain || verifiedContext.length === 0) {
         const topCandidate = retrieval.candidates[0];
-        const assistantMessage = buildUncertainAnswer(false, responseLanguage);
-        const saved = await saveTurn({
-          conversationId,
-          visitorId,
-          userMessage: lastMessage,
-          assistantMessage,
-          source: "uncertain",
-        });
 
-        await saveKnowledgeGap({
-          conversationId: saved.conversationId,
-          assistantMessageId: saved.messageId,
-          userQuestion: lastMessage,
-          assistantAnswer: assistantMessage,
+        return answerWithoutKnowledge({
           reason: topCandidate ? "weak-match" : "no-match",
           topSimilarity: topCandidate?.scoreBreakdown.semantic,
-        });
-
-        return jsonResponse({
-          message: assistantMessage,
-          source: "uncertain",
-          conversationId: saved.conversationId,
-          messageId: saved.messageId,
-          suggestedQuestions: buildSuggestedQuestions({
-            question: lastMessage,
-            source: "uncertain",
-            category: topCandidate?.category,
-            language: responseLanguage,
-          }),
-          retrievalTrace: retrievalTraceForResponse,
+          category: topCandidate?.category,
         });
       }
 
@@ -2759,7 +2618,7 @@ export async function POST(req: Request) {
         lexicalTop.verified
       ) {
         const assistantMessage = lexicalTop.content ?? "";
-        setCachedChatAnswer(lastMessage, responseLanguage, {
+        setCachedChatAnswer(lastMessage, responseLanguage, dialogContextKey, {
           message: assistantMessage,
           source: "knowledge-direct",
           category: lexicalTop.category,
@@ -2816,7 +2675,7 @@ export async function POST(req: Request) {
       top.similarity > DIRECT_MATCH_THRESHOLD &&
       top.verified
     ) {
-      setCachedChatAnswer(lastMessage, responseLanguage, {
+      setCachedChatAnswer(lastMessage, responseLanguage, dialogContextKey, {
         message: top.content ?? "",
         source: "knowledge-direct",
         category: top.category,
@@ -2848,43 +2707,10 @@ export async function POST(req: Request) {
       : getUncertainReason(top);
 
     if (uncertainReason) {
-      const supportCard = getSupportCardIfNeeded(
-        lastMessage,
-        responseLanguage
-      );
-      const assistantMessage = buildUncertainAnswer(
-        Boolean(supportCard),
-        responseLanguage
-      );
-      const saved = await saveTurn({
-        conversationId,
-        visitorId,
-        userMessage: lastMessage,
-        assistantMessage,
-        source: "uncertain",
-      });
-
-      await saveKnowledgeGap({
-        conversationId: saved.conversationId,
-        assistantMessageId: saved.messageId,
-        userQuestion: lastMessage,
-        assistantAnswer: assistantMessage,
+      return answerWithoutKnowledge({
         reason: uncertainReason,
         topSimilarity: top?.similarity,
-      });
-
-      return jsonResponse({
-        message: assistantMessage,
-        source: "uncertain",
-        conversationId: saved.conversationId,
-        messageId: saved.messageId,
-        suggestedQuestions: buildSuggestedQuestions({
-          question: lastMessage,
-          source: "uncertain",
-          category: top?.category,
-          language: responseLanguage,
-        }),
-        supportCard,
+        category: top?.category,
       });
     }
 
@@ -2894,61 +2720,69 @@ export async function POST(req: Request) {
       : results.filter((r) => r.similarity > MIN_CONTEXT_THRESHOLD)
     ).slice(0, 4);
 
+    // Numbered fragments in relevance order; the prompt tells the model that
+    // [1] is the most relevant and to prefer it on conflicts.
     const context = relevantResults
       .map(
-        (r) => `
-TITLE:
-${r.title}
-
-CONTENT:
-${r.content}
-`
+        (r, index) => `[${index + 1}] ${r.title ?? ""}${
+          r.category ? ` (${r.category})` : ""
+        }\n${(r.content ?? "").trim()}`
       )
       .join("\n\n");
 
-    // Если нет релевантных результатов - уведомление в контексте
-    const contextOrEmpty =
-      context.trim() ||
-      (responseLanguage === "kk"
-        ? "БАЗА ЗНАНИЙ ПУСТА - бәс информация жок"
-        : "БАЗА ЗНАНИЙ ПУСТА - нет подходящей информации");
-
     const assistantPrompt = buildAssistantPromptV3({
       language: responseLanguage as AssistantPromptV3Language,
-      knowledgeContext: contextOrEmpty,
+      knowledgeContext: context,
     });
 
     // ===== GPT =====
-    const completion =
-      await getOpenAI().chat.completions.create({
-        model: "gpt-4-turbo",
+    let rawAnswer: string | null = null;
+    let answerSource = "gpt";
 
-        temperature: 0.2,
-
+    try {
+      const completion = await getOpenAI().chat.completions.create({
+        model: CHAT_MODEL,
+        temperature: 0.1,
+        max_tokens: CHAT_MAX_TOKENS,
         messages: [
           {
             role: "system",
             content: assistantPrompt,
           },
-
           ...getRecentModelMessages(messages),
         ],
       });
 
+      rawAnswer = completion.choices[0]?.message.content ?? null;
+    } catch (error) {
+      // A model outage must not turn a found verified answer into a 500.
+      console.error("CHAT COMPLETION FAILED:", {
+        model: CHAT_MODEL,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    const topContextContent = relevantResults[0]?.content;
+
+    if (!rawAnswer?.trim() && topContextContent) {
+      rawAnswer = topContextContent;
+      answerSource = "knowledge-direct";
+    }
+
     const assistantMessage = cleanAndFormatResponse(
-      completion.choices[0].message.content ??
+      rawAnswer ??
         (responseLanguage === "kk"
           ? "Жауап алу мүмкін болмады. Өтініш қайтаңыз."
           : "Не удалось получить ответ. Попробуйте позже."),
       responseLanguage
     );
-    
+
     const saved = await saveTurn({
       conversationId,
       visitorId,
       userMessage: lastMessage,
       assistantMessage,
-      source: "gpt",
+      source: answerSource,
     });
 
     const gapReason =
@@ -2970,10 +2804,10 @@ ${r.content}
         reason: gapReason,
         topSimilarity: top?.similarity,
       });
-    } else {
-      setCachedChatAnswer(lastMessage, responseLanguage, {
+    } else if (rawAnswer) {
+      setCachedChatAnswer(lastMessage, responseLanguage, dialogContextKey, {
         message: assistantMessage,
-        source: "gpt",
+        source: answerSource,
         category: top?.category,
       });
     }
@@ -2981,17 +2815,18 @@ ${r.content}
     // ===== RESPONSE =====
     return jsonResponse({
       message: assistantMessage,
-      source: "gpt",
+      source: answerSource,
       conversationId: saved.conversationId,
       messageId: saved.messageId,
-        suggestedQuestions: buildSuggestedQuestions({
-          question: lastMessage,
-          source: "gpt",
-          category: top?.category,
-          language: responseLanguage,
-        }),
+      suggestedQuestions: buildSuggestedQuestions({
+        question: lastMessage,
+        source: answerSource,
+        category: top?.category,
+        language: responseLanguage,
+      }),
       supportCard: gapReason
-        ? getSupportCardIfNeeded(lastMessage, responseLanguage)
+        ? getSupportCardIfNeeded(lastMessage, responseLanguage) ??
+          GENERAL_SUPPORT_CARDS[responseLanguage]
         : undefined,
       retrievalTrace: retrievalTraceForResponse,
     });

@@ -74,20 +74,29 @@ function hasTokenPrefix(text: string, prefixes: string[]) {
 export function detectIntentHints(normalizedQuery: string): RetrievalIntentHint[] {
   const hints: RetrievalIntentHint[] = [];
 
-  if (hasAny(normalizedQuery, ["епд", "оплат", "kaspi", "каспи", "плат", "заплат", "төле", "төлем", "деньги"])) {
+  // "епд" alone is a receipt signal, not a payment one: otherwise every
+  // "почему в ЕПД такая сумма" question was rewritten as "платеж не отразился".
+  if (hasAny(normalizedQuery, ["оплат", "kaspi", "каспи", "плат", "заплат", "төле", "төлем", "деньги"])) {
     hints.push("payment");
   }
   if (hasAny(normalizedQuery, ["квитанц", "бумажк", "түбіртек", "епд", "пришла", "дубликат"])) {
     hints.push("receipt");
   }
   if (
-    hasAny(normalizedQuery, ["показан", "счетчик", "счётчик", "көрсеткіш", "есептегіш"]) ||
+    hasAny(normalizedQuery, ["показан", "счетчик", "счётчик", "көрсеткіш", "есептегіш", "прибор учета"]) ||
     hasToken(normalizedQuery, ["свет", "вода", "газ", "жарық", "су"]) ||
     hasTokenPrefix(normalizedQuery, ["электроэнерг"])
   ) {
     hints.push("meter");
   }
-  if (hasAny(normalizedQuery, ["лицев", "счет", "счёт", "дербес шот", "абонент"])) {
+  // Whole-word match: the substring "счет" is also inside "счетчик" and
+  // "перерасчет", which sent meter and recalculation questions to the
+  // "как узнать номер лицевого счета" article.
+  if (
+    hasTokenPrefix(normalizedQuery, ["лицев", "абонент"]) ||
+    hasToken(normalizedQuery, ["счет", "счета", "счету", "счетом", "счете"]) ||
+    normalizedQuery.includes("дербес шот")
+  ) {
     hints.push("account");
   }
   if (hasAny(normalizedQuery, ["купил", "купила", "продал", "продали", "квартир", "пәтер", "собственник", "владелец"])) {
@@ -201,7 +210,10 @@ export function rewriteQuery(params: {
     rewrites.push("оплата епд через kaspi коммунальные услуги");
   }
 
-  if (intentHints.includes("meter")) {
+  if (
+    intentHints.includes("meter") &&
+    !hasAny(normalizedQuery, ["почему", "начисл", "сумм", "перерасч", "тариф"])
+  ) {
     const utility = hasToken(normalizedQuery, ["свет", "жарық"]) ||
       hasTokenPrefix(normalizedQuery, ["электроэнерг"])
       ? "электроэнергии"
@@ -216,7 +228,10 @@ export function rewriteQuery(params: {
     rewrites.push(
       "купил квартиру новый собственник узнать номер лицевого счета переоформление владельца"
     );
-  } else if (intentHints.includes("account")) {
+  } else if (
+    intentHints.includes("account") &&
+    hasAny(normalizedQuery, ["узна", "номер", "найти", "где"])
+  ) {
     rewrites.push("как узнать номер лицевого счета");
   }
 

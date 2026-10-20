@@ -136,12 +136,50 @@ function maxLexicalScore(query: QueryUnderstanding, item: KnowledgeRecord) {
   );
 }
 
+// The resident's own wording must drive semantic search. Canned rewrites only
+// add a small share, otherwise a broad rewrite ("как узнать номер лицевого
+// счета") outranks the article that actually answers the question.
+const REWRITE_SEMANTIC_SHARE = 0.15;
+
+function semanticScore(
+  item: KnowledgeRecord,
+  queryEmbedding: number[],
+  rewriteEmbedding: number[] | null
+) {
+  const primary = cosineSimilarity(queryEmbedding, item.embedding);
+
+  if (!rewriteEmbedding) {
+    return primary;
+  }
+
+  const rewrite = cosineSimilarity(rewriteEmbedding, item.embedding);
+
+  return Math.max(
+    primary,
+    primary * (1 - REWRITE_SEMANTIC_SHARE) + rewrite * REWRITE_SEMANTIC_SHARE
+  );
+}
+
+function getSemanticQueries(query: QueryUnderstanding) {
+  const contextualQuery = query.rewrittenQueries.find((rewrite) =>
+    rewrite.includes("\n")
+  );
+  // Follow-ups like "а где это посмотреть?" need the previous turn to mean anything.
+  const primary = contextualQuery ?? query.normalizedQuery ?? query.originalQuery;
+  const rewrite = query.rewrittenQueries.find(
+    (candidate) => candidate !== contextualQuery
+  );
+
+  return { primary, rewrite };
+}
+
 function buildBreakdown(
   query: QueryUnderstanding,
   item: KnowledgeRecord,
-  queryEmbedding: number[]
+  queryEmbedding: number[],
+  rewriteEmbedding: number[] | null
 ): ScoreBreakdown {
-  const semantic = cosineSimilarity(queryEmbedding, item.embedding);
+  const semantic = semanticScore(item, queryEmbedding, rewriteEmbedding);
   const lexical = maxLexicalScore(query, item);
   const title = titleScore(query, item);
   const category = categoryScore(query, item);
@@ -311,16 +349,20 @@ export async function retrieveKnowledgeV2(params: {
   }
 
   const embeddingStart = nowMs();
-  const semanticQuery =
-    query.rewrittenQueries[0] ?? query.normalizedQuery ?? query.originalQuery;
-  const queryEmbedding = await createEmbedding(semanticQuery);
+  const semanticQueries = getSemanticQueries(query);
+  const [queryEmbedding, rewriteEmbedding] = await Promise.all([
+    createEmbedding(semanticQueries.primary),
+    semanticQueries.rewrite
+      ? createEmbedding(semanticQueries.rewrite)
+      : Promise.resolve(null),
+  ]);
   const embeddingMs = nowMs() - embeddingStart;
   const retrievalStart = nowMs();
   const rows = (await loadKnowledgeRows()) as KnowledgeRecord[];
   const retrievalMs = nowMs() - retrievalStart;
   const rerankStart = nowMs();
   const candidates = rows
-    .map((item) => buildBreakdown(query, item, queryEmbedding))
+    .map((item) => buildBreakdown(query, item, queryEmbedding, rewriteEmbedding))
     .map((breakdown, index) => toCandidate(rows[index], 0, breakdown))
     .sort((a, b) => b.score - a.score)
     .map((candidate, index) => ({

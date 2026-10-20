@@ -68,4 +68,11 @@ describe("knowledge lifecycle", () => {
       true
     );
   });
+
+  it("treats script-imported verified rows with the default draft status as published", () => {
+    expect(isPublishedKnowledge({ status: "draft", verified: true })).toBe(true);
+    expect(isPublishedKnowledge({ status: null, verified: true })).toBe(true);
+    expect(isPublishedKnowledge({ status: "review", verified: true })).toBe(false);
+    expect(isPublishedKnowledge({ status: "draft", verified: false })).toBe(false);
+  });
 });

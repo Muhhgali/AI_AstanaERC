@@ -1,8 +1,3 @@
-console.log("ENV CHECK:", {
-  url: process.env.SUPABASE_URL,
-  key: process.env.SUPABASE_ANON_KEY,
-  openai: process.env.OPENAI_API_KEY,
-});
 import dotenv from "dotenv";
 dotenv.config();
 

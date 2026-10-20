@@ -16,7 +16,7 @@
     "knowledge:upsert:verified": "tsx scripts/upsertKnowledge.ts data/verifiedKnowledge.json",
     "knowledge:upsert:draft-extra": "tsx scripts/upsertKnowledge.ts data/knowledge.draft.extra-questions.json",
     "knowledge:compact": "tsx scripts/compactKnowledge.ts",
-    "knowledge:replace:compact": "tsx scripts/replaceKnowledge.ts data/knowledge.compact.json --yes",
+    "knowledge:replace:compact": "tsx scripts/replaceKnowledge.ts data/knowledge.compact.json",
     "suppliers:import": "tsx scripts/importSuppliers.ts",
     "eval:retrieval": "tsx scripts/evaluateRetrieval.ts",
     "eval:real-world:build": "tsx scripts/buildRealWorldEval.ts",
