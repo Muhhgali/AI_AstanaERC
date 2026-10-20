@@ -24,6 +24,9 @@ export type DocumentExtractionResult =
       pageCount: number;
       warnings: string[];
       errorMessage: string;
+      // The PDF itself may be fine and only the local parser failed, so vision
+      // OCR can still read it. False for password-protected or too-long files.
+      ocrCanRetry?: boolean;
     };
 
 export type DocumentExtractRequest = {
@@ -47,7 +50,14 @@ type PdfParserInstance = {
   destroy(): Promise<void>;
 };
 
-type PdfParserConstructor = new (options: { data: Uint8Array }) => PdfParserInstance;
+type PdfParserConstructor = (new (options: {
+  data: Uint8Array;
+  CanvasFactory?: unknown;
+}) => PdfParserInstance) & {
+  setWorker?: (workerSrc: string) => unknown;
+};
+
+let pdfCanvasFactory: unknown;
 
 type VisionOcrClient = {
   files: {
@@ -156,9 +166,23 @@ async function getPdfParserConstructor() {
   }
 
   await ensurePdfRuntime();
+
+  // Serverless setup recommended by pdf-parse for Next.js on Vercel: the pdf.js
+  // worker is passed inline as a data URL, because the separate worker file is
+  // not traced into the function bundle and native parsing failed there.
+  const worker = (await import("pdf-parse/worker").catch((error) => {
+    console.warn("PDF WORKER MODULE UNAVAILABLE:", error);
+    return null;
+  })) as { getData?: () => string; CanvasFactory?: unknown } | null;
   const pdfParse = (await import("pdf-parse")) as {
     PDFParse: PdfParserConstructor;
   };
+
+  if (worker?.getData) {
+    pdfParse.PDFParse.setWorker?.(worker.getData());
+  }
+
+  pdfCanvasFactory = worker?.CanvasFactory;
   pdfParserConstructor = pdfParse.PDFParse;
 
   return pdfParserConstructor;
@@ -208,7 +232,11 @@ export class NativePdfExtractor implements DocumentTextExtractor {
 
     try {
       const PDFParse = await getPdfParserConstructor();
-      parser = new PDFParse({ data: bytes });
+      parser = new PDFParse(
+        pdfCanvasFactory
+          ? { data: bytes, CanvasFactory: pdfCanvasFactory }
+          : { data: bytes }
+      );
       const info = await parser.getInfo();
       const pageCount = info.total ?? 0;
 
@@ -249,15 +277,24 @@ export class NativePdfExtractor implements DocumentTextExtractor {
         warnings,
       };
     } catch (error) {
+      const passwordProtected = isPasswordOrEncryptedError(error);
+
+      console.warn("NATIVE PDF EXTRACTION FAILED:", error);
+
       return {
         status: "failed",
         method: "none",
         text: "",
         pageCount: 0,
-        warnings: [],
-        errorMessage: isPasswordOrEncryptedError(error)
+        warnings: [
+          `Native PDF extraction failed: ${
+            error instanceof Error ? error.message.slice(0, 200) : "unknown error"
+          }`,
+        ],
+        errorMessage: passwordProtected
           ? "PDF защищён паролем или зашифрован. Загрузите незапароленный PDF."
           : "Не удалось прочитать PDF. Возможно, файл повреждён или имеет неподдерживаемый формат.",
+        ocrCanRetry: !passwordProtected,
       };
     } finally {
       await parser?.destroy().catch(() => undefined);
@@ -398,8 +435,14 @@ export async function extractResidentDocumentText(
 
   if (request.contentType === "application/pdf") {
     const native = await new NativePdfExtractor().extract(request.bytes);
+    const nativeParserFailed =
+      native.status === "failed" && native.ocrCanRetry === true;
 
-    if (native.status !== "ocr_required") {
+    if (native.status === "ready") {
+      return native;
+    }
+
+    if (native.status === "failed" && !nativeParserFailed) {
       return native;
     }
 

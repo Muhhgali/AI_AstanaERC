@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  extractResidentDocumentText,
   OcrExtractor,
   setVisionOcrClientFactory,
 } from "../lib/documents/extraction";
@@ -106,6 +107,32 @@ describe("vision OCR extractor", () => {
         expect.objectContaining({ type: "input_file", file_id: "file_test_1" }),
       ])
     );
+  });
+
+  it("falls back to vision OCR when the local PDF parser cannot read the file", async () => {
+    const responsesCreate = vi.fn().mockResolvedValue({
+      output_text: kaspiOcrText,
+    });
+
+    setVisionOcrClientFactory(() => ({
+      files: {
+        create: vi.fn().mockResolvedValue({ id: "file_fallback" }),
+        delete: vi.fn().mockResolvedValue({}),
+      },
+      responses: {
+        create: responsesCreate,
+      },
+    }));
+
+    const result = await extractResidentDocumentText({
+      bytes: new TextEncoder().encode("%PDF-1.4 broken for the local parser"),
+      contentType: "application/pdf",
+      fileName: "receipt.pdf",
+    });
+
+    expect(result.status).toBe("ready");
+    expect(result.method).toBe("vision");
+    expect(responsesCreate).toHaveBeenCalledOnce();
   });
 
   it("fails clearly when vision returns almost no text", async () => {
