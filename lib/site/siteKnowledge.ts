@@ -1,6 +1,7 @@
 // Converts crawled aerc.kz pages into knowledge-base rows.
 // Every row keeps its page URL in `source`, so the assistant can link to it.
 import type { SitePage } from "./extractPage";
+import { isOutdatedSiteFaq, isOutdatedSitePage } from "./outdatedContent";
 
 export type SiteKnowledgeChunk = {
   title: string;
@@ -107,11 +108,19 @@ export function buildSiteKnowledgeChunks(pages: SitePage[]): SiteKnowledgeChunk[
   };
 
   for (const page of pages) {
-    if (SKIPPED_SECTIONS.has(page.section) || SKIPPED_PATHS.test(page.path)) {
+    if (
+      SKIPPED_SECTIONS.has(page.section) ||
+      SKIPPED_PATHS.test(page.path) ||
+      isOutdatedSitePage(page.path)
+    ) {
       continue;
     }
 
     for (const item of page.faq) {
+      if (isOutdatedSiteFaq(item.question)) {
+        continue;
+      }
+
       const title = sentenceCase(item.question);
 
       push({

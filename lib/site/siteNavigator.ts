@@ -2,6 +2,7 @@
 // to the right section of the site ("подробнее и онлайн-форма — здесь").
 import sitePagesData from "../../data/site-pages.json";
 import type { SitePage } from "./extractPage";
+import { isOutdatedSitePage } from "./outdatedContent";
 
 export type SiteNavEntry = {
   url: string;
@@ -26,7 +27,8 @@ const MANUAL_ENTRIES: Array<Omit<SiteNavEntry, "searchText"> & { keywords: strin
     url: `${ORIGIN}/ru/abonentam/readings/`,
     lang: "ru",
     title: "Передача показаний счётчиков онлайн",
-    description: "Онлайн-форма Астана-ЕРЦ для передачи показаний приборов учёта.",
+    description:
+      "Онлайн-форма Астана-ЕРЦ: показания по всем услугам (вода, свет, газ, горячая вода, тепло) передаются здесь.",
     keywords: "передать показания счетчик прибор учета вода газ свет электроэнергия онлайн форма",
   },
   {
@@ -148,7 +150,7 @@ export function getSiteNavEntries(data: SitePagesFile = sitePagesData as SitePag
   }
 
   for (const page of data.pages ?? []) {
-    if (manualUrls.has(page.url) || page.section === "home") {
+    if (manualUrls.has(page.url) || page.section === "home" || isOutdatedSitePage(page.path)) {
       continue;
     }
 

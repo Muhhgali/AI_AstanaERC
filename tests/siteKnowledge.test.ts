@@ -53,7 +53,7 @@ describe("site page extraction", () => {
 
 describe("site knowledge chunks", () => {
   it("turns FAQ answers into linked rows and skips news", () => {
-    const page = extractSitePage(faqHtml, "https://www.aerc.kz/ru/guide/peredacha-pokazaniy-/");
+    const page = extractSitePage(faqHtml, "https://www.aerc.kz/ru/guide/gazosnabzhenie/");
     const news = { ...page, section: "novosti", url: "https://www.aerc.kz/ru/novosti/1/" };
     const chunks = buildSiteKnowledgeChunks([page, news]);
     const faqChunk = chunks.find((chunk) => chunk.priority === 80);
@@ -61,10 +61,40 @@ describe("site knowledge chunks", () => {
     expect(faqChunk).toMatchObject({
       title: "Куда передать показания газа?",
       category: "meters",
-      source: "https://www.aerc.kz/ru/guide/peredacha-pokazaniy-/",
+      source: "https://www.aerc.kz/ru/guide/gazosnabzhenie/",
       language: "ru",
     });
     expect(chunks.some((chunk) => chunk.source.includes("/novosti/"))).toBe(false);
+  });
+});
+
+describe("outdated site content", () => {
+  it("keeps the old supplier readings channels out of the knowledge base", () => {
+    const readingsPage = extractSitePage(
+      faqHtml,
+      "https://www.aerc.kz/ru/guide/peredacha-pokazaniy-/"
+    );
+    const topTen = {
+      ...extractSitePage(faqHtml, "https://www.aerc.kz/ru/guide/top-10-voprosov/"),
+      faq: [
+        { question: "КОНТАКТНЫЕ НОМЕРА ДЛЯ ПЕРЕДАЧИ ПОКАЗАНИЙ", answer: "Call-центр 1302, 270-370 и другие" },
+        { question: "ГДЕ МОЖНО ОПЛАТИТЬ ЕПД?", answer: "Интернет-банкинг, кассы банков и терминалы оплаты." },
+      ],
+    };
+    const titles = buildSiteKnowledgeChunks([readingsPage, topTen]).map((chunk) => chunk.title);
+
+    expect(titles).toContain("Где можно оплатить епд?");
+    expect(titles).not.toContain("Контактные номера для передачи показаний");
+    expect(titles).not.toContain("Куда передать показания газа?");
+  });
+
+  it("sends readings questions to the Astana-ERC form, not the outdated guide page", () => {
+    const urls = findSitePages({ query: "как передать показания", language: "ru" }).map(
+      (page) => page.url
+    );
+
+    expect(urls[0]).toBe("https://www.aerc.kz/ru/abonentam/readings/");
+    expect(urls.some((url) => url.includes("peredacha-pokazaniy"))).toBe(false);
   });
 });
 

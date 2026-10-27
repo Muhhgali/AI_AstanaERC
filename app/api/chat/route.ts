@@ -1206,27 +1206,21 @@ function isMeterReadingSubmissionIntent(question: string) {
 }
 
 function buildMeterReadingSubmissionAnswer(language: ChatLanguage) {
-  // Channels as published on https://www.aerc.kz/ru/guide/peredacha-pokazaniy-/
+  // Astana-ERC integrated with the suppliers: readings for every service go
+  // through its online form. The supplier call centres listed on
+  // aerc.kz/guide/peredacha-pokazaniy- are out of date (see lib/site/outdatedContent.ts).
   if (language === "kk") {
     return [
-      "Көрсеткіштер қызмет түріне қарай беріледі:",
-      "1. Су (ыстық және суық) — «Астана Су арнасы»: 270-370, 8778-003-70-70, astanasu1302@mail.kz.",
-      "2. Электр энергиясы — «Астана-АЭК»: 576-580, Telegram-бот @astrekbot, etolem.kz сайты.",
-      "3. Газ — «Астана қаласын орталық газбен жабдықтау»: 69-58-49, +7-778-601-10-39, pokazaniegaz@mail.ru.",
-      "4. Ыстық сумен жабдықтау — «Астанаэнергосбыт»: 91-88-88, WhatsApp 8701-245-62-67, Telegram-бот @Astanaenergosbyt_bot.",
-      "Астана-ЕРЦ сайтындағы онлайн-форма: https://www.aerc.kz/kk/abonentam/readings/",
-      "Толығырақ: https://www.aerc.kz/kk/guide/peredacha-pokazaniy-/",
+      "Барлық қызметтер бойынша (су, жарық, газ, ыстық су, жылу) көрсеткіштерді Астана-ЕРЦ сайтындағы онлайн-форма арқылы беруге болады: https://www.aerc.kz/kk/abonentam/readings/",
+      "Базадағы ақпарат бойынша көрсеткіштер айдың 10-ынан 30/31-іне дейін қабылданады.",
+      "Теплотранзит бойынша көрсеткіштер 15-інен бастап қабылданады.",
     ].join("\n");
   }
 
   return [
-    "Показания передаются в зависимости от услуги:",
-    "1. Вода (холодная и горячая) — ГКП «Астана су арнасы»: 270-370, 8778-003-70-70, astanasu1302@mail.kz.",
-    "2. Электроэнергия — ТОО «Астана-РЭК»: 576-580, Telegram-бот @astrekbot, сайт etolem.kz.",
-    "3. Газ — ТОО «Центральное газоснабжение города Астаны»: 69-58-49, +7-778-601-10-39, pokazaniegaz@mail.ru.",
-    "4. Горячее водоснабжение — ТОО «Астанаэнергосбыт»: 91-88-88, WhatsApp 8701-245-62-67, Telegram-бот @Astanaenergosbyt_bot.",
-    "Также есть онлайн-форма на сайте Астана-ЕРЦ: https://www.aerc.kz/ru/abonentam/readings/",
-    "Подробнее: https://www.aerc.kz/ru/guide/peredacha-pokazaniy-/",
+    "Показания по всем услугам (вода, свет, газ, горячая вода, тепло) можно передать через онлайн-форму на сайте Астана-ЕРЦ: https://www.aerc.kz/ru/abonentam/readings/",
+    "По данным базы, передача показаний доступна с 10 числа месяца по 30/31 число.",
+    "По Теплотранзиту показания принимаются с 15 числа.",
   ].join("\n");
 }
 
