@@ -26,6 +26,8 @@ export const HYBRID_RETRIEVAL_CONFIG = {
   categoryWeight: 0.06,
   verifiedWeight: 0.04,
   priorityWeight: 0.04,
+  // Text from the official aerc.kz site outranks older drafts on the same topic.
+  officialSiteWeight: 0.07,
   highScore: 0.62,
   mediumScore: 0.48,
   minimumSemanticForHigh: 0.5,
@@ -184,6 +186,7 @@ function buildBreakdown(
   const title = titleScore(query, item);
   const category = categoryScore(query, item);
   const verified = item.verified ? 1 : 0;
+  const officialSite = /^https:\/\/(www\.)?aerc\.kz\//.test(item.source ?? "") ? 1 : 0;
   const priority = Math.min(Math.max(item.priority ?? 0, 0), 100) / 100;
   const final =
     semantic * HYBRID_RETRIEVAL_CONFIG.semanticWeight +
@@ -191,7 +194,8 @@ function buildBreakdown(
     title * HYBRID_RETRIEVAL_CONFIG.titleWeight +
     category * HYBRID_RETRIEVAL_CONFIG.categoryWeight +
     verified * HYBRID_RETRIEVAL_CONFIG.verifiedWeight +
-    priority * HYBRID_RETRIEVAL_CONFIG.priorityWeight;
+    priority * HYBRID_RETRIEVAL_CONFIG.priorityWeight +
+    officialSite * HYBRID_RETRIEVAL_CONFIG.officialSiteWeight;
 
   return {
     semantic: round(semantic),

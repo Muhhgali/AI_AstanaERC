@@ -18,6 +18,8 @@ const MAX_CHUNK_CHARS = 1400;
 // News items go stale (outages, deadlines); they stay reachable through the
 // navigator but are not loaded into the knowledge base as facts.
 const SKIPPED_SECTIONS = new Set(["novosti", "home"]);
+// Lists of individual staff (receipt couriers) add names, not answers.
+const SKIPPED_PATHS = /\/o-kompanii\/employees\//;
 
 function inferCategory(text: string, section: string, title = ""): string {
   // The title decides first: answers often mention "оплата" in passing.
@@ -105,7 +107,7 @@ export function buildSiteKnowledgeChunks(pages: SitePage[]): SiteKnowledgeChunk[
   };
 
   for (const page of pages) {
-    if (SKIPPED_SECTIONS.has(page.section)) {
+    if (SKIPPED_SECTIONS.has(page.section) || SKIPPED_PATHS.test(page.path)) {
       continue;
     }
 
@@ -124,11 +126,20 @@ export function buildSiteKnowledgeChunks(pages: SitePage[]): SiteKnowledgeChunk[
     }
 
     const rest = page.faq.length > 0 ? removeFaqText(page.text, page) : page.text;
+    // Many pages share the generic <h1> "Астана ЕРЦ"; their first content line
+    // is the real heading ("Генеральный директор", "Перечень документов ЕПД").
+    const heading =
+      page.text
+        .split("\n")
+        .map((line) => line.replace(/^[-–\s/]+/, "").trim())
+        .find((line) => line.length > 3 && line.length <= 120) ?? "";
+    const pageTitle =
+      /^астана ерц$/i.test(page.title.trim()) && heading.length > 3 ? heading : page.title;
     const parts = splitIntoChunks(rest);
 
     parts.forEach((content, index) => {
       push({
-        title: parts.length > 1 ? `${page.title} (${index + 1})` : page.title,
+        title: parts.length > 1 ? `${pageTitle} (${index + 1})` : pageTitle,
         category: inferCategory(content, page.section, firstLine(content)),
         content,
         language: page.lang,
