@@ -45,6 +45,7 @@ describe("assistant prompt v3", () => {
     expect(prompt).toContain("SITE_PAGES");
     expect(prompt).toContain("https://www.aerc.kz/ru/abonentam/readings/");
     expect(prompt).toContain("Ссылки бери только оттуда");
+    expect(prompt).toContain("Шаги бери только из контекста");
   });
 
   it("blocks internal meta-talk in user-facing answers", () => {
