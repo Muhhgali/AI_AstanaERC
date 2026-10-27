@@ -65,6 +65,7 @@ import {
   isEpdEarlyPaymentDifferenceIntent,
 } from "@/lib/epdEarlyPaymentDifference";
 import { hasPhrase, hasWord, hasWordPrefix } from "@/lib/textMatch";
+import { findSitePages } from "@/lib/site/siteNavigator";
 
 let openai: OpenAI | null = null;
 let adminSupabase: ReturnType<typeof createClient<any>> | null = null;
@@ -120,9 +121,9 @@ const CHAT_CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CHAT_CACHE_ITEMS = 100;
 const MAX_GPT_HISTORY_MESSAGES = 8;
 const MAX_USER_MESSAGE_LENGTH = 2000;
-const MAX_ANSWER_LENGTH = 1500;
+const MAX_ANSWER_LENGTH = 2000;
 const CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || "gpt-4.1";
-const CHAT_MAX_TOKENS = 700;
+const CHAT_MAX_TOKENS = 900;
 // Owner switch: "true" lets unverified (draft) knowledge rows into the answer
 // context. Off by default so the bot only repeats facts a person has confirmed.
 const ALLOW_UNVERIFIED_CONTEXT =
@@ -198,6 +199,47 @@ function setCachedChatAnswer(
       chatAnswerCache.delete(firstKey);
     }
   }
+}
+
+function isSiteUrl(source: string | null | undefined): source is string {
+  return Boolean(source && /^https:\/\/(www\.)?aerc\.kz\//.test(source));
+}
+
+// Site pages relevant to the current question; short follow-ups ("а где?")
+// also use the previous user message so the topic carries over.
+function findSitePagesForDialog(messages: ChatBodyMessage[], language: ChatLanguage) {
+  const userTexts = messages
+    .filter((message) => message.role === "user" && message.content)
+    .map((message) => message.content as string);
+  const last = userTexts[userTexts.length - 1] ?? "";
+  const query =
+    last.split(/\s+/).length <= 4 && userTexts.length > 1
+      ? `${userTexts[userTexts.length - 2]} ${last}`
+      : last;
+
+  return findSitePages({ query, language, limit: 2 }).map((page) => ({
+    title: page.title,
+    url: page.url,
+  }));
+}
+
+function appendSitePageLinks(
+  message: string,
+  pages: { title: string; url: string }[],
+  language: ChatLanguage
+) {
+  if (pages.length === 0) {
+    return message;
+  }
+
+  const heading =
+    language === "kk"
+      ? "Сайттағы мына бөлім көмектесуі мүмкін:"
+      : "Возможно, поможет раздел сайта:";
+
+  return `${message}\n\n${heading}\n${pages
+    .map((page) => `- ${page.title}: ${page.url}`)
+    .join("\n")}`;
 }
 
 function getRecentModelMessages(messages: ChatBodyMessage[]) {
@@ -1164,18 +1206,27 @@ function isMeterReadingSubmissionIntent(question: string) {
 }
 
 function buildMeterReadingSubmissionAnswer(language: ChatLanguage) {
+  // Channels as published on https://www.aerc.kz/ru/guide/peredacha-pokazaniy-/
   if (language === "kk") {
     return [
-      "Көрсеткіштерді Астана ЕРЦ сайтындағы бөлім арқылы беруге болады: https://www.aerc.kz/ru/abonentam/readings/.",
-      "Базадағы ақпарат бойынша көрсеткіштер айдың 10-ынан 30/31-іне дейін қабылданады.",
-      "Теплотранзит бойынша көрсеткіштер 15-інен бастап қабылданады.",
+      "Көрсеткіштер қызмет түріне қарай беріледі:",
+      "1. Су (ыстық және суық) — «Астана Су арнасы»: 270-370, 8778-003-70-70, astanasu1302@mail.kz.",
+      "2. Электр энергиясы — «Астана-АЭК»: 576-580, Telegram-бот @astrekbot, etolem.kz сайты.",
+      "3. Газ — «Астана қаласын орталық газбен жабдықтау»: 69-58-49, +7-778-601-10-39, pokazaniegaz@mail.ru.",
+      "4. Ыстық сумен жабдықтау — «Астанаэнергосбыт»: 91-88-88, WhatsApp 8701-245-62-67, Telegram-бот @Astanaenergosbyt_bot.",
+      "Астана-ЕРЦ сайтындағы онлайн-форма: https://www.aerc.kz/kk/abonentam/readings/",
+      "Толығырақ: https://www.aerc.kz/kk/guide/peredacha-pokazaniy-/",
     ].join("\n");
   }
 
   return [
-    "Показания можно передать на сайте Астана ЕРЦ: https://www.aerc.kz/ru/abonentam/readings/.",
-    "По данным базы, передача показаний доступна с 10 числа месяца по 30/31 число.",
-    "По Теплотранзиту показания принимаются с 15 числа.",
+    "Показания передаются в зависимости от услуги:",
+    "1. Вода (холодная и горячая) — ГКП «Астана су арнасы»: 270-370, 8778-003-70-70, astanasu1302@mail.kz.",
+    "2. Электроэнергия — ТОО «Астана-РЭК»: 576-580, Telegram-бот @astrekbot, сайт etolem.kz.",
+    "3. Газ — ТОО «Центральное газоснабжение города Астаны»: 69-58-49, +7-778-601-10-39, pokazaniegaz@mail.ru.",
+    "4. Горячее водоснабжение — ТОО «Астанаэнергосбыт»: 91-88-88, WhatsApp 8701-245-62-67, Telegram-бот @Astanaenergosbyt_bot.",
+    "Также есть онлайн-форма на сайте Астана-ЕРЦ: https://www.aerc.kz/ru/abonentam/readings/",
+    "Подробнее: https://www.aerc.kz/ru/guide/peredacha-pokazaniy-/",
   ].join("\n");
 }
 
@@ -2504,7 +2555,12 @@ export async function POST(req: Request) {
         getSupportCardIfNeeded(lastMessage, responseLanguage) ??
         (fallback ? undefined : GENERAL_SUPPORT_CARDS[responseLanguage]);
       const assistantMessage =
-        fallback?.message ?? buildUncertainAnswer(true, responseLanguage);
+        fallback?.message ??
+        appendSitePageLinks(
+          buildUncertainAnswer(true, responseLanguage),
+          findSitePagesForDialog(messages, responseLanguage),
+          responseLanguage
+        );
       const source = fallback?.source ?? "uncertain";
       const saved = await saveTurn({
         conversationId,
@@ -2756,13 +2812,16 @@ export async function POST(req: Request) {
       .map(
         (r, index) => `[${index + 1}] ${r.title ?? ""}${
           r.category ? ` (${r.category})` : ""
-        }\n${(r.content ?? "").trim()}`
+        }\n${(r.content ?? "").trim()}${
+          isSiteUrl(r.source) ? `\nСтраница сайта: ${r.source}` : ""
+        }`
       )
       .join("\n\n");
 
     const assistantPrompt = buildAssistantPromptV3({
       language: responseLanguage as AssistantPromptV3Language,
       knowledgeContext: context,
+      sitePages: findSitePagesForDialog(messages, responseLanguage),
     });
 
     // ===== GPT =====
@@ -2772,7 +2831,8 @@ export async function POST(req: Request) {
     try {
       const completion = await getOpenAI().chat.completions.create({
         model: CHAT_MODEL,
-        temperature: 0.1,
+        // A little variety keeps answers natural; facts still come only from context.
+        temperature: 0.3,
         max_tokens: CHAT_MAX_TOKENS,
         messages: [
           {

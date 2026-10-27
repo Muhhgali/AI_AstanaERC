@@ -163,10 +163,11 @@ const RETRIEVAL_STOP_WORDS = new Set([
   "пожалуйста",
 ]);
 
-// Crude Russian/Kazakh stemming: drop up to three trailing letters so that
-// "показания"/"показаний" or "квитанция"/"квитанцию" share one token.
+// Crude Russian/Kazakh stemming: a fixed 5-letter prefix, so that
+// "показания"/"показаниях", "оплата"/"оплатить" or "көрсеткіш"/"көрсеткішті"
+// share one token regardless of the ending length.
 function stemToken(token: string) {
-  return token.length <= 5 ? token : token.slice(0, Math.max(5, token.length - 3));
+  return token.slice(0, 5);
 }
 
 export function tokenizeForRetrieval(text: string) {

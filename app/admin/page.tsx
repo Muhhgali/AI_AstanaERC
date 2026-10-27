@@ -699,6 +699,8 @@ export default function AdminPage() {
   >("updated");
   const [globalSearch, setGlobalSearch] = useState("");
   const [currentUserEmail, setCurrentUserEmail] = useState("Администратор");
+  const [siteSyncing, setSiteSyncing] = useState(false);
+  const [siteSyncStatus, setSiteSyncStatus] = useState("");
 
   const didBootstrap = useRef(false);
   const router = useRouter();
@@ -807,6 +809,34 @@ export default function AdminPage() {
       setLoading(false);
     }
   }, [apiRequest]);
+
+  // Loads the crawled aerc.kz pages (data/site-pages.json) into the knowledge base.
+  const syncSitePages = useCallback(async () => {
+    setSiteSyncing(true);
+    setSiteSyncStatus("");
+    setError("");
+
+    try {
+      const data = await apiRequest<{
+        pages: number;
+        chunks: number;
+        inserted: number;
+        updated: number;
+        unchanged: number;
+        archived: number;
+        crawledAt?: string | null;
+      }>("/api/admin/site-sync", { method: "POST", body: "{}" });
+
+      setSiteSyncStatus(
+        `Сайт загружен: ${data.pages} страниц, ${data.chunks} записей. Новых ${data.inserted}, обновлено ${data.updated}, без изменений ${data.unchanged}, убрано устаревших ${data.archived}.`
+      );
+      await loadKnowledge();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось загрузить сайт в базу");
+    } finally {
+      setSiteSyncing(false);
+    }
+  }, [apiRequest, loadKnowledge]);
 
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true);
@@ -4071,13 +4101,29 @@ export default function AdminPage() {
                   </p>
                 </div>
 
-                <button
-                  onClick={() => void loadKnowledge()}
-                  className="h-10 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50"
-                >
-                  Обновить
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => void syncSitePages()}
+                    disabled={siteSyncing}
+                    title="Загрузить страницы сайта aerc.kz в базу знаний бота"
+                    className="h-10 rounded-md border border-blue-300 bg-blue-50 px-3 text-sm font-medium text-blue-800 hover:bg-blue-100 disabled:opacity-60"
+                  >
+                    {siteSyncing ? "Загружаю сайт..." : "Загрузить сайт в базу"}
+                  </button>
+                  <button
+                    onClick={() => void loadKnowledge()}
+                    className="h-10 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50"
+                  >
+                    Обновить
+                  </button>
+                </div>
               </div>
+
+              {siteSyncStatus ? (
+                <div className="border-b border-neutral-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                  {siteSyncStatus}
+                </div>
+              ) : null}
 
               {loading ? (
                 <div className="p-5 text-sm text-neutral-500">

@@ -16,6 +16,27 @@ function getOpenAI() {
   return openai;
 }
 
+export const EMBEDDING_MODEL = "text-embedding-3-small";
+
+/** Embeds many texts in batches of 100 (one API call per batch). */
+export async function createEmbeddings(texts: string[]) {
+  const embeddings: number[][] = [];
+
+  for (let start = 0; start < texts.length; start += 100) {
+    const batch = texts.slice(start, start + 100);
+    const res = await getOpenAI().embeddings.create({
+      model: EMBEDDING_MODEL,
+      input: batch,
+    });
+
+    for (const item of [...res.data].sort((a, b) => a.index - b.index)) {
+      embeddings.push(item.embedding);
+    }
+  }
+
+  return embeddings;
+}
+
 export async function createEmbedding(text: string) {
   const cacheKey = text.replace(/\s+/g, " ").trim().toLowerCase();
   const cached = embeddingCache.get(cacheKey);
@@ -25,7 +46,7 @@ export async function createEmbedding(text: string) {
   }
 
   const res = await getOpenAI().embeddings.create({
-    model: "text-embedding-3-small",
+    model: EMBEDDING_MODEL,
     input: text,
   });
 

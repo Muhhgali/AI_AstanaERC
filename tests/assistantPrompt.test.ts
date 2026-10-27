@@ -26,8 +26,25 @@ describe("assistant prompt v3", () => {
     expect(prompt).not.toContain("HIGH:");
     expect(prompt).not.toContain("MEDIUM:");
     expect(prompt).not.toContain("LOW:");
-    expect(prompt).not.toContain("уточняющий вопрос");
-    expect(prompt).toContain("Не задавай уточняющие вопросы");
+    // At most one short follow-up question, only when the answer truly depends on it.
+    expect(prompt).toContain("один короткий встречный вопрос");
+  });
+
+  it("passes site pages as the only allowed links", () => {
+    const prompt = buildAssistantPromptV3({
+      language: "ru",
+      knowledgeContext: "Контекст есть.",
+      sitePages: [
+        {
+          title: "Передача показаний счётчиков онлайн",
+          url: "https://www.aerc.kz/ru/abonentam/readings/",
+        },
+      ],
+    });
+
+    expect(prompt).toContain("SITE_PAGES");
+    expect(prompt).toContain("https://www.aerc.kz/ru/abonentam/readings/");
+    expect(prompt).toContain("Ссылки бери только оттуда");
   });
 
   it("blocks internal meta-talk in user-facing answers", () => {
