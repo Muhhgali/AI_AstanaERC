@@ -2,6 +2,7 @@
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 import { createEmbedding } from "@/lib/embedding";
+import { removeRepeatedMoreLinks } from "@/lib/answerLinks";
 import {
   searchKnowledge,
   searchKnowledgeLexical,
@@ -1445,6 +1446,8 @@ function cleanAndFormatResponse(message: string, language: ChatLanguage): string
       break;
     }
   }
+
+  cleaned = removeRepeatedMoreLinks(cleaned);
 
   if (cleaned.length > MAX_ANSWER_LENGTH) {
     const cut = cleaned.substring(0, MAX_ANSWER_LENGTH);
