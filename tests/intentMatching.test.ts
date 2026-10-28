@@ -65,6 +65,13 @@ describe("meter correction goes to the supplier", () => {
     expect(answer).not.toContain("vodosnabzhenie");
   });
 
+  it("recognises water in any case form", () => {
+    const answer = buildMeterCorrectionSupplierAnswer("в квитанции завышены показания воды", "ru");
+
+    expect(answer).toContain("vodosnabzhenie-i-vodootvedenie");
+    expect(answer).not.toContain("gazosnabzhenie");
+  });
+
   it("lists every supplier page when the service is unknown", () => {
     const answer = buildMeterCorrectionSupplierAnswer("көрсеткішті қалай түзетемін", "kk");
 

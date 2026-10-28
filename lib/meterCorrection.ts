@@ -192,7 +192,7 @@ export function inferServiceType(text: string) {
   if (
     normalized.includes("холод") ||
     normalized.includes("хвс") ||
-    normalized.includes("вода") ||
+    hasWord(normalized, ["вода", "воды", "воду", "водой", "воде"]) ||
     normalized.includes("суық") ||
     normalized.includes("су")
   ) {
