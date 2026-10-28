@@ -5,6 +5,7 @@ import {
   isArchivedKnowledge,
   isPublishedKnowledge,
 } from "@/lib/knowledgeLifecycle";
+import { isOutdatedReadingsKnowledge } from "@/lib/site/outdatedContent";
 
 const KNOWLEDGE_PAGE_SIZE = 1000;
 
@@ -263,7 +264,7 @@ export async function loadKnowledgeRows() {
   const rows = (data ?? []).reduce<
     (KnowledgeRow & { embedding: number[] })[]
   >((rows, item) => {
-    if (isArchivedKnowledge(item)) {
+    if (isArchivedKnowledge(item) || isOutdatedReadingsKnowledge(item)) {
       return rows;
     }
 

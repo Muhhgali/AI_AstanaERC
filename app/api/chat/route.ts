@@ -13,14 +13,16 @@ import {
   toLegacyKnowledgeResult,
 } from "@/lib/rag/hybridRetrieval";
 import { getSupabaseProjectUrl } from "@/lib/supabaseEnv";
-import { METER_CORRECTION_ENABLED, meterCorrectionUnavailableMessage } from "@/lib/features";
+import { METER_CORRECTION_ENABLED } from "@/lib/features";
 import {
   buildMeterCorrectionCreatedMessage,
   buildMeterCorrectionQuestion,
+  buildMeterCorrectionSupplierAnswer,
   getMissingMeterCorrectionFields,
   getMeterCorrectionServiceOptions,
   getMeterCorrectionServiceLabel,
   isMeterCorrectionIntent,
+  isMeterValueCorrectionQuestion,
   MeterCorrectionFormPayload,
   mergeMeterCorrectionDrafts,
   validateMeterCorrectionForm,
@@ -1290,14 +1292,6 @@ function findFallbackGuidance(
   question: string,
   language: ChatLanguage
 ): FallbackGuidance | null {
-  if (!METER_CORRECTION_ENABLED && isMeterCorrectionIntent(question)) {
-    return {
-      message: meterCorrectionUnavailableMessage(language),
-      source: "meter-correction-unavailable",
-      logGap: true,
-    };
-  }
-
   if (isEpdDefinitionIntent(question)) {
     return {
       message: buildEpdDefinitionAnswer(language),
@@ -2066,21 +2060,24 @@ export async function POST(req: Request) {
         : null;
     const userMessages = messages.filter((message) => message.role === "user");
 
-    // Typed correction questions go through the knowledge base first and only
-    // fall back to this message when there is no verified answer.
-    if (!METER_CORRECTION_ENABLED && submittedMeterCorrection) {
-      const assistantMessage = meterCorrectionUnavailableMessage(responseLanguage);
+    // Readings in the ЕПД come from the supplier's database, so while the bot
+    // form is off, correction requests go straight to the supplier's contacts.
+    if (
+      !METER_CORRECTION_ENABLED &&
+      (submittedMeterCorrection || isMeterValueCorrectionQuestion(lastMessage))
+    ) {
+      const assistantMessage = buildMeterCorrectionSupplierAnswer(lastMessage, responseLanguage);
       const saved = await saveTurn({
         conversationId,
         visitorId,
         userMessage: lastMessage,
         assistantMessage,
-        source: "meter-correction-unavailable",
+        source: "meter-correction-supplier",
       });
 
       return jsonResponse({
         message: assistantMessage,
-        source: "meter-correction-unavailable",
+        source: "meter-correction-supplier",
         conversationId: saved.conversationId,
         messageId: saved.messageId,
         suggestedQuestions: pickSuggestedQuestions(responseLanguage, "default"),

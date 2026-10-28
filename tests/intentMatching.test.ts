@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { hasPhrase, hasWord, hasWordPrefix } from "../lib/textMatch";
-import { isMeterCorrectionIntent } from "../lib/meterCorrection";
+import {
+  buildMeterCorrectionSupplierAnswer,
+  isMeterCorrectionIntent,
+  isMeterValueCorrectionQuestion,
+} from "../lib/meterCorrection";
 import { understandQuery } from "../lib/rag/queryUnderstanding";
 
 describe("word-aware matching", () => {
@@ -44,5 +48,28 @@ describe("account intent hint", () => {
     const query = understandQuery({ query: "как сделать перерасчет за воду" });
 
     expect(query.rewrittenQueries.join("\n")).not.toContain("номер лицевого счета");
+  });
+});
+
+describe("meter correction goes to the supplier", () => {
+  it("separates corrections from trouble with the readings form", () => {
+    expect(isMeterValueCorrectionQuestion("как исправить показания счетчика")).toBe(true);
+    expect(isMeterValueCorrectionQuestion("не могу передать показания")).toBe(false);
+  });
+
+  it("links the supplier page of the named service", () => {
+    const answer = buildMeterCorrectionSupplierAnswer("неверные показания газа", "ru");
+
+    expect(answer).toContain("по данным базы поставщика");
+    expect(answer).toContain("https://www.aerc.kz/ru/guide/gazosnabzhenie/");
+    expect(answer).not.toContain("vodosnabzhenie");
+  });
+
+  it("lists every supplier page when the service is unknown", () => {
+    const answer = buildMeterCorrectionSupplierAnswer("көрсеткішті қалай түзетемін", "kk");
+
+    expect(answer).toContain("жеткізушісіне хабарласыңыз");
+    expect(answer).toContain("https://www.aerc.kz/kk/guide/gazosnabzhenie/");
+    expect(answer).toContain("https://www.aerc.kz/kk/guide/energosnabzhenie-i-teplosnabzhenie-/");
   });
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { extractSitePage, normalizeSiteUrl } from "../lib/site/extractPage";
 import { buildSiteKnowledgeChunks } from "../lib/site/siteKnowledge";
 import { findSitePages } from "../lib/site/siteNavigator";
+import { isOutdatedReadingsKnowledge } from "../lib/site/outdatedContent";
 
 const faqHtml = `
 <html><head><title>Астана ЕРЦ</title></head><body>
@@ -121,5 +122,37 @@ describe("site navigator", () => {
 
   it("returns nothing for unrelated questions", () => {
     expect(findSitePages({ query: "какая завтра погода", language: "ru" })).toEqual([]);
+  });
+});
+
+describe("outdated readings knowledge rows", () => {
+  it("drops rows that send readings to old supplier channels", () => {
+    expect(
+      isOutdatedReadingsKnowledge({
+        title: "Передача показаний электроэнергии",
+        content: "Показания электроэнергии можно передать через Telegram-бот astrekbot, сайт etolem.kz и call-центр.",
+      })
+    ).toBe(true);
+    expect(
+      isOutdatedReadingsKnowledge({
+        title: "Передача показаний воды",
+        content: "Показания приборов учета воды принимаются через call-центр Астана Су Арнасы и электронную почту.",
+      })
+    ).toBe(true);
+  });
+
+  it("keeps rows that point to the Astana-ERC form and unrelated rows", () => {
+    expect(
+      isOutdatedReadingsKnowledge({
+        title: "Передача показаний газа",
+        content: "Передачу показаний можете сделать на нашем сайте по ссылке https://www.aerc.kz/ru/abonentam/readings/",
+      })
+    ).toBe(false);
+    expect(
+      isOutdatedReadingsKnowledge({
+        title: "Ошибочный платеж",
+        content: "Обратитесь в call-центр банка, через который проводили оплату.",
+      })
+    ).toBe(false);
   });
 });

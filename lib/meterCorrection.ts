@@ -371,3 +371,68 @@ export function buildMeterCorrectionCreatedMessage(
     "Специалист проверит данные и свяжется по указанному телефону или email.",
   ].join("\n");
 }
+
+// "Не могу передать показания" is a problem with the readings form, not a
+// request to change readings the supplier already has.
+const SUBMISSION_PROBLEM_PHRASES = [
+  "не могу передать",
+  "не получается передать",
+  "жібере алма",
+  "бере алма",
+];
+
+export function isMeterValueCorrectionQuestion(text: string) {
+  return isMeterCorrectionIntent(text) && !hasPhrase(text, SUBMISSION_PROBLEM_PHRASES);
+}
+
+// aerc.kz «ГИД» pages that list each supplier's phones and offices.
+const SUPPLIER_GUIDE_PAGES = [
+  {
+    path: "energosnabzhenie-i-teplosnabzhenie-",
+    services: ["electricity_astana_rek"],
+    ru: "Электроэнергия и отопление",
+    kk: "Электр энергиясы және жылу",
+  },
+  {
+    path: "vodosnabzhenie-i-vodootvedenie",
+    services: ["cold_water_astana_su", "hot_water_astana_su"],
+    ru: "Водоснабжение и водоотведение",
+    kk: "Сумен жабдықтау және су бұру",
+  },
+  {
+    path: "gazosnabzhenie",
+    services: ["gas_central"],
+    ru: "Газоснабжение",
+    kk: "Газбен жабдықтау",
+  },
+];
+
+// Readings and charges in the ЕПД come from the supplier's database, so only
+// the supplier can correct them.
+export function buildMeterCorrectionSupplierAnswer(
+  question: string,
+  language: "ru" | "kk"
+) {
+  const service = inferServiceType(question);
+  const matching = SUPPLIER_GUIDE_PAGES.filter((page) =>
+    service ? page.services.includes(service) : false
+  );
+  const pages = matching.length > 0 ? matching : SUPPLIER_GUIDE_PAGES;
+  const links = pages
+    .map((page) => `- ${page[language]}: https://www.aerc.kz/${language}/guide/${page.path}/`)
+    .join("\n");
+
+  if (language === "kk") {
+    return [
+      "ЕПД-дағы көрсеткіштер мен есептеулер қызмет жеткізушінің базасындағы деректер бойынша көрсетіледі, сондықтан көрсеткішті түзету үшін сол қызметтің жеткізушісіне хабарласыңыз.",
+      "Жеткізушінің телефондары мен мекенжайлары Астана-ЕРЦ сайтындағы «ГИД» бөлімінде:",
+      links,
+    ].join("\n\n");
+  }
+
+  return [
+    "Показания и начисления в ЕПД отображаются по данным базы поставщика услуги, поэтому для корректировки показаний обратитесь к поставщику этой услуги.",
+    "Телефоны и адреса поставщиков есть на сайте Астана-ЕРЦ в разделе «ГИД»:",
+    links,
+  ].join("\n\n");
+}

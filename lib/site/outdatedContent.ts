@@ -21,3 +21,23 @@ export function isOutdatedSitePage(path: string) {
 export function isOutdatedSiteFaq(question: string) {
   return OUTDATED_FAQ_QUESTIONS.some((pattern) => pattern.test(question));
 }
+
+// Knowledge rows written before the integration that still send readings to
+// supplier channels (Telegram bot, etolem.kz, call centres, SMS, app).
+const READINGS_TOPIC = /показан|көрсеткіш/i;
+const OLD_READINGS_CHANNELS =
+  /astrekbot|etolem|telegram|телеграм|call-?центр|колл-?центр|горяч\S* лини|мобильн\S* приложени|sms|смс/i;
+const SUBMISSION_WORDS = /переда|принима|прием|приём|беру|қабылда/i;
+
+export function isOutdatedReadingsKnowledge(row: { title?: string | null; content?: string | null }) {
+  const title = row.title ?? "";
+  const content = row.content ?? "";
+  const text = `${title}\n${content}`;
+
+  return (
+    READINGS_TOPIC.test(text) &&
+    SUBMISSION_WORDS.test(text) &&
+    OLD_READINGS_CHANNELS.test(content) &&
+    !/aerc\.kz\/(ru|kk)\/abonentam\/readings/i.test(content)
+  );
+}
