@@ -35,6 +35,41 @@ type KnowledgeGap = {
 };
 
 const MAX_HISTORY_CONVERSATIONS = 500;
+// PostgREST returns at most 1000 rows per request.
+const MESSAGES_PAGE_SIZE = 1000;
+const MESSAGE_ID_BATCH = 100;
+// Residents and staff are in Astana (UTC+5); a "day" in the filter is theirs.
+const ASTANA_OFFSET = "+05:00";
+
+function parseDay(value: string | null) {
+  return value && /^d{4}-d{2}-d{2}$/.test(value) ? value : null;
+}
+
+// `to` is inclusive: "2026-10-31" covers the whole of 31 October.
+function getDateRange(url: URL) {
+  const from = parseDay(url.searchParams.get("from"));
+  const to = parseDay(url.searchParams.get("to"));
+  const end = to ? new Date(`${to}T00:00:00${ASTANA_OFFSET}`) : null;
+
+  end?.setUTCDate(end.getUTCDate() + 1);
+
+  return {
+    from: from ? new Date(`${from}T00:00:00${ASTANA_OFFSET}`).toISOString() : null,
+    toExclusive: end ? end.toISOString() : null,
+  };
+}
+
+function inRange<T extends { gte: (column: string, value: string) => T; lt: (column: string, value: string) => T }>(
+  query: T,
+  range: { from: string | null; toExclusive: string | null }
+) {
+  let ranged = query;
+
+  if (range.from) ranged = ranged.gte("created_at", range.from);
+  if (range.toExclusive) ranged = ranged.lt("created_at", range.toExclusive);
+
+  return ranged;
+}
 
 let adminClient: ReturnType<typeof createClient<any>> | null = null;
 
@@ -68,6 +103,38 @@ function isMissingKnowledgeGapsTable(error: { code?: string; message?: string })
   );
 }
 
+// Loads every message of the given dialogs: one request used to stop at the
+// 1000-row cap and cut off the newest dialogs' messages.
+async function loadMessages(admin: ReturnType<typeof getAdminClient>, ids: string[]) {
+  const messages: ChatMessage[] = [];
+
+  for (let start = 0; start < ids.length; start += MESSAGE_ID_BATCH) {
+    const batch = ids.slice(start, start + MESSAGE_ID_BATCH);
+
+    for (let page = 0; ; page += 1) {
+      const { data, error } = await admin
+        .from("chat_messages")
+        .select("id,conversation_id,role,content,source,feedback,created_at")
+        .in("conversation_id", batch)
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(page * MESSAGES_PAGE_SIZE, (page + 1) * MESSAGES_PAGE_SIZE - 1);
+
+      if (error) {
+        return { messages, error };
+      }
+
+      messages.push(...((data ?? []) as ChatMessage[]));
+
+      if ((data ?? []).length < MESSAGES_PAGE_SIZE) {
+        break;
+      }
+    }
+  }
+
+  return { messages, error: null };
+}
+
 export async function GET(req: Request) {
   const authorization = await requireAdmin(req);
 
@@ -81,17 +148,25 @@ export async function GET(req: Request) {
     Math.max(Number.isFinite(requestedLimit) ? requestedLimit : 100, 1),
     MAX_HISTORY_CONVERSATIONS
   );
+  const requestedOffset = Number(url.searchParams.get("offset") ?? 0);
+  const offset = Number.isFinite(requestedOffset) ? Math.max(Math.floor(requestedOffset), 0) : 0;
+  const range = getDateRange(url);
+  const hasRange = Boolean(range.from || range.toExclusive);
   const admin = getAdminClient();
 
   const {
     data: conversations,
     error: conversationsError,
     count: totalConversations,
-  } = await admin
+  } = await inRange(
+    admin
       .from("chat_conversations")
-      .select("id,title,created_at,updated_at", { count: "exact" })
-      .order("updated_at", { ascending: false })
-      .range(0, limit - 1);
+      .select("id,title,created_at,updated_at", { count: "exact" }),
+    range
+  )
+    // A period lists dialogs by when they started; the default view by activity.
+    .order(hasRange ? "created_at" : "updated_at", { ascending: false })
+    .range(offset, offset + limit - 1);
 
   if (conversationsError) {
     if (isMissingHistoryTable(conversationsError)) {
@@ -120,20 +195,23 @@ export async function GET(req: Request) {
 
   const [messagesCount, userMessagesCount, assistantMessagesCount] =
     await Promise.all([
-      admin.from("chat_messages").select("id", { count: "exact", head: true }),
-      admin
-        .from("chat_messages")
-        .select("id", { count: "exact", head: true })
-        .eq("role", "user"),
-      admin
-        .from("chat_messages")
-        .select("id", { count: "exact", head: true })
-        .eq("role", "assistant"),
+      inRange(admin.from("chat_messages").select("id", { count: "exact", head: true }), range),
+      inRange(
+        admin.from("chat_messages").select("id", { count: "exact", head: true }).eq("role", "user"),
+        range
+      ),
+      inRange(
+        admin
+          .from("chat_messages")
+          .select("id", { count: "exact", head: true })
+          .eq("role", "assistant"),
+        range
+      ),
     ]);
 
   const safeHistoryStats = {
     totalConversations: totalConversations ?? conversations?.length ?? 0,
-    loadedConversations: conversations?.length ?? 0,
+    loadedConversations: offset + (conversations?.length ?? 0),
     totalMessages: messagesCount.error ? null : messagesCount.count ?? 0,
     totalUserMessages: userMessagesCount.error ? null : userMessagesCount.count ?? 0,
     totalAssistantMessages: assistantMessagesCount.error
@@ -171,11 +249,7 @@ export async function GET(req: Request) {
     });
   }
 
-  const { data: messages, error: messagesError } = await admin
-    .from("chat_messages")
-    .select("id,conversation_id,role,content,source,feedback,created_at")
-    .in("conversation_id", ids)
-    .order("created_at", { ascending: true });
+  const { messages, error: messagesError } = await loadMessages(admin, ids);
 
   if (messagesError) {
     if (isMissingHistoryTable(messagesError)) {

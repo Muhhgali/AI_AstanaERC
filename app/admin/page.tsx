@@ -15,6 +15,12 @@ import { AdminTopNav } from "@/components/admin/AdminTopNav";
 import { CommandCenter } from "@/components/admin/CommandCenter";
 import { KnowledgeWorkspace } from "@/components/admin/KnowledgeWorkspace";
 import { ModuleFrame, ModuleTabs } from "@/components/admin/ModuleFrame";
+import { HistoryPeriodPicker } from "@/components/admin/HistoryPeriodPicker";
+import {
+  historyPeriodQuery,
+  presetPeriod,
+  type HistoryPeriod,
+} from "@/components/admin/historyPeriods";
 import type { AdminNotification, AdminPrimaryNav } from "@/components/admin/types";
 import { supabase } from "@/lib/supabaseClient";
 import type { RequestCategory, RequestStatusFilter, HistoryFilter } from "@/lib/types";
@@ -680,6 +686,12 @@ export default function AdminPage() {
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
+  const [historyPeriod, setHistoryPeriod] = useState<HistoryPeriod>(() =>
+    presetPeriod("latest")
+  );
+  // Read inside loadHistory so its identity (and the startup effect) stays stable.
+  const historyPeriodRef = useRef(historyPeriod);
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [suppliersLoading, setSuppliersLoading] = useState(false);
   const [supplierSaving, setSupplierSaving] = useState(false);
@@ -838,8 +850,18 @@ export default function AdminPage() {
     }
   }, [apiRequest, loadKnowledge]);
 
-  const loadHistory = useCallback(async () => {
-    setHistoryLoading(true);
+  const loadHistory = useCallback(async (options?: { offset?: number }) => {
+    const offset = options?.offset ?? 0;
+    const setBusy = offset > 0 ? setHistoryLoadingMore : setHistoryLoading;
+    const params = historyPeriodQuery(historyPeriodRef.current);
+
+    params.set("limit", "500");
+
+    if (offset > 0) {
+      params.set("offset", String(offset));
+    }
+
+    setBusy(true);
     setError("");
 
     try {
@@ -848,8 +870,10 @@ export default function AdminPage() {
         knowledgeGaps?: KnowledgeGap[];
         historyStats?: HistoryStats;
         gapSetupRequired?: boolean;
-      }>("/api/admin/history?limit=500");
-      setHistory(data.conversations);
+      }>(`/api/admin/history?${params.toString()}`);
+      setHistory((current) =>
+        offset > 0 ? [...current, ...data.conversations] : data.conversations
+      );
       setHistoryStats(
         data.historyStats ?? {
           totalConversations: data.conversations.length,
@@ -882,9 +906,18 @@ export default function AdminPage() {
         err instanceof Error ? err.message : "Не удалось загрузить историю";
       setError(message);
     } finally {
-      setHistoryLoading(false);
+      setBusy(false);
     }
   }, [apiRequest]);
+
+  const changeHistoryPeriod = useCallback(
+    (period: HistoryPeriod) => {
+      historyPeriodRef.current = period;
+      setHistoryPeriod(period);
+      void loadHistory();
+    },
+    [loadHistory]
+  );
 
   const loadRequests = useCallback(async () => {
     setRequestsLoading(true);
@@ -5094,9 +5127,11 @@ export default function AdminPage() {
           <>
             <section className="mb-5 grid gap-3 md:grid-cols-4">
               <div className="rounded-lg border border-neutral-200 bg-white p-4">
-                <div className="text-sm text-neutral-500">Диалогов</div>
+                <div className="text-sm text-neutral-500">
+                  Диалогов · {historyPeriod.label.toLowerCase()}
+                </div>
                 <div className="mt-2 text-3xl font-semibold">
-                  {history.length}
+                  {resolvedHistoryStats.totalConversations}
                 </div>
               </div>
               <div className="rounded-lg border border-neutral-200 bg-white p-4">
@@ -5222,6 +5257,14 @@ export default function AdminPage() {
                 </div>
               </div>
 
+              <div className="border-b border-neutral-200 p-4">
+                <HistoryPeriodPicker
+                  value={historyPeriod}
+                  onChange={changeHistoryPeriod}
+                  disabled={historyLoading}
+                />
+              </div>
+
               <div className="grid gap-2 border-b border-neutral-200 bg-neutral-50 p-4 md:grid-cols-4">
                 {historyFilters.map((filter) => (
                   <button
@@ -5251,7 +5294,11 @@ export default function AdminPage() {
               {historyLoading ? (
                 <div className="p-4 text-sm text-neutral-500">Загружаю историю...</div>
               ) : filteredHistory.length === 0 ? (
-                <div className="p-4 text-sm text-neutral-500">История пока пустая.</div>
+                <div className="p-4 text-sm text-neutral-500">
+                  {historyPeriod.from
+                    ? `За период «${historyPeriod.label}» диалогов нет.`
+                    : "История пока пустая."}
+                </div>
               ) : (
                 <div className="divide-y divide-neutral-200">
                   {filteredHistory.map((conversation) => {
@@ -5364,6 +5411,29 @@ export default function AdminPage() {
                   })}
                 </div>
               )}
+
+              {!historyLoading &&
+                resolvedHistoryStats.loadedConversations <
+                  resolvedHistoryStats.totalConversations && (
+                  <div className="flex flex-col items-center gap-2 border-t border-neutral-200 p-4 text-sm text-neutral-500">
+                    <span>
+                      Загружено {resolvedHistoryStats.loadedConversations} из{" "}
+                      {resolvedHistoryStats.totalConversations}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={historyLoadingMore}
+                      onClick={() =>
+                        void loadHistory({
+                          offset: resolvedHistoryStats.loadedConversations,
+                        })
+                      }
+                      className="h-10 rounded-md border border-neutral-300 bg-white px-4 text-sm font-medium text-neutral-800 hover:bg-neutral-50 disabled:opacity-60"
+                    >
+                      {historyLoadingMore ? "Загружаю..." : "Показать ещё 500"}
+                    </button>
+                  </div>
+                )}
             </section>
           </>
         ) : null}
