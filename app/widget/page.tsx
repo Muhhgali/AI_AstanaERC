@@ -21,6 +21,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { BrandMark } from "@/components/BrandMark";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { METER_CORRECTION_ENABLED } from "@/lib/features";
+import { useResidentRequestSettings } from "@/lib/useResidentRequestSettings";
 import type {
   ChatMessage,
   ChatResponse,
@@ -603,6 +604,7 @@ function AppointmentRequestFormCard({
 }
 
 export default function WidgetPage() {
+  const requestSettings = useResidentRequestSettings();
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [visitorId, setVisitorId] = useState("");
   const [language, setLanguage] = useState<ChatLanguage>("ru");
@@ -1450,20 +1452,23 @@ export default function WidgetPage() {
   const handleGuidedAction = (text: string) => {
     const normalized = text.toLowerCase();
 
+    // Switched-off forms go to the bot, which answers with the 109 contacts.
     if (
-      normalized.includes("обращение") ||
-      normalized.includes("өтініш") ||
-      normalized.includes("шағым")
+      requestSettings.appeals &&
+      (normalized.includes("обращение") ||
+        normalized.includes("өтініш") ||
+        normalized.includes("шағым"))
     ) {
       startAppealRequest();
       return;
     }
 
     if (
-      normalized.includes("прием") ||
-      normalized.includes("приём") ||
-      normalized.includes("қабылдау") ||
-      normalized.includes("жазыл")
+      requestSettings.appointments &&
+      (normalized.includes("прием") ||
+        normalized.includes("приём") ||
+        normalized.includes("қабылдау") ||
+        normalized.includes("жазыл"))
     ) {
       startAppointmentRequest();
       return;
@@ -1733,21 +1738,29 @@ export default function WidgetPage() {
                 </button>
               ))}
             </div>
-            <div className="mt-3 flex flex-wrap gap-2 text-xs">
-              <button
-                onClick={startAppealRequest}
-                className="font-semibold text-emerald-700"
-              >
-                Оставить обращение
-              </button>
-              <span className="text-neutral-300">/</span>
-              <button
-                onClick={startAppointmentRequest}
-                className="font-semibold text-violet-700"
-              >
-                Записаться на прием
-              </button>
-            </div>
+            {(requestSettings.appeals || requestSettings.appointments) && (
+              <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                {requestSettings.appeals && (
+                  <button
+                    onClick={startAppealRequest}
+                    className="font-semibold text-emerald-700"
+                  >
+                    Оставить обращение
+                  </button>
+                )}
+                {requestSettings.appeals && requestSettings.appointments && (
+                  <span className="text-neutral-300">/</span>
+                )}
+                {requestSettings.appointments && (
+                  <button
+                    onClick={startAppointmentRequest}
+                    className="font-semibold text-violet-700"
+                  >
+                    Записаться на прием
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
 

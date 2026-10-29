@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { sendRequestEmail } from "@/lib/requestEmail";
 import { enforceRateLimit, RATE_LIMIT_POLICIES } from "@/lib/rateLimit";
 import { getSupabaseProjectUrl } from "@/lib/supabaseEnv";
+import { getResidentRequestSettings } from "@/lib/residentRequests";
 import {
   getOrCreateVisitorOwnership,
   getOwnedConversationId,
@@ -109,6 +110,11 @@ export async function POST(req: Request) {
     }
 
     return rateLimited;
+  }
+
+  // Switched off in the admin panel: nobody is reading these right now.
+  if (!(await getResidentRequestSettings()).appointments) {
+    return jsonResponse({ message: "Запись на приём через бот сейчас выключена.", disabled: true }, { status: 403 });
   }
 
   try {

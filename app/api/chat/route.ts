@@ -15,6 +15,11 @@ import {
 import { getSupabaseProjectUrl } from "@/lib/supabaseEnv";
 import { METER_CORRECTION_ENABLED } from "@/lib/features";
 import {
+  buildRequestsDisabledAnswer,
+  getResidentRequestSettings,
+  type ResidentRequestKind,
+} from "@/lib/residentRequests";
+import {
   buildMeterCorrectionCreatedMessage,
   buildMeterCorrectionQuestion,
   buildMeterCorrectionSupplierAnswer,
@@ -2250,7 +2255,35 @@ export async function POST(req: Request) {
     // returned here. They pre-empted the knowledge base even when it had a more
     // precise verified article; see findFallbackGuidance below.
 
-    if (isAppealFormIntent(lastMessage)) {
+    const requestKind: ResidentRequestKind | null = isAppealFormIntent(lastMessage)
+      ? "appeals"
+      : isLeadershipAppointmentIntent(lastMessage)
+        ? "appointments"
+        : isOperatorHandoffIntent(lastMessage)
+          ? "operator"
+          : null;
+
+    // Forms switched off in the admin panel get the city contact centre instead.
+    if (requestKind && !(await getResidentRequestSettings())[requestKind]) {
+      const assistantMessage = buildRequestsDisabledAnswer(requestKind, responseLanguage);
+      const saved = await saveTurn({
+        conversationId,
+        visitorId,
+        userMessage: lastMessage,
+        assistantMessage,
+        source: "requests-disabled",
+      });
+
+      return jsonResponse({
+        message: assistantMessage,
+        source: "requests-disabled",
+        conversationId: saved.conversationId,
+        messageId: saved.messageId,
+        suggestedQuestions: pickSuggestedQuestions(responseLanguage, "default"),
+      });
+    }
+
+    if (requestKind === "appeals") {
       const assistantMessage = buildAppealFormIntro(responseLanguage);
       const saved = await saveTurn({
         conversationId,
@@ -2274,7 +2307,7 @@ export async function POST(req: Request) {
       });
     }
 
-    if (isLeadershipAppointmentIntent(lastMessage)) {
+    if (requestKind === "appointments") {
       const assistantMessage = buildAppointmentFormIntro(responseLanguage);
       const saved = await saveTurn({
         conversationId,
@@ -2298,7 +2331,7 @@ export async function POST(req: Request) {
       });
     }
 
-    if (isOperatorHandoffIntent(lastMessage)) {
+    if (requestKind === "operator") {
       const assistantMessage = buildOperatorHandoffAnswer(responseLanguage);
       const saved = await saveTurn({
         conversationId,

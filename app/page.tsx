@@ -27,6 +27,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { BrandMark } from "@/components/BrandMark";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { METER_CORRECTION_ENABLED } from "@/lib/features";
+import { useResidentRequestSettings } from "@/lib/useResidentRequestSettings";
 import type {
   ChatMessage,
   ChatResponse,
@@ -733,6 +734,7 @@ function AppointmentRequestFormCard({
 }
 
 export default function Home() {
+  const requestSettings = useResidentRequestSettings();
   const [conversationId, setConversationId] = useState<
     string | undefined
   >();
@@ -1681,20 +1683,23 @@ export default function Home() {
   const handleGuidedAction = (text: string) => {
     const normalized = text.toLowerCase();
 
+    // Switched-off forms go to the bot, which answers with the 109 contacts.
     if (
-      normalized.includes("обращение") ||
-      normalized.includes("өтініш") ||
-      normalized.includes("шағым")
+      requestSettings.appeals &&
+      (normalized.includes("обращение") ||
+        normalized.includes("өтініш") ||
+        normalized.includes("шағым"))
     ) {
       startAppealRequest();
       return;
     }
 
     if (
-      normalized.includes("прием") ||
-      normalized.includes("приём") ||
-      normalized.includes("қабылдау") ||
-      normalized.includes("жазыл")
+      requestSettings.appointments &&
+      (normalized.includes("прием") ||
+        normalized.includes("приём") ||
+        normalized.includes("қабылдау") ||
+        normalized.includes("жазыл"))
     ) {
       startAppointmentRequest();
       return;
@@ -1864,20 +1869,24 @@ export default function Home() {
                   Действия
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={startAppealRequest}
-                    className="rounded-full border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-neutral-700 transition hover:bg-neutral-50"
-                  >
-                    Обращение
-                  </button>
-                  <button
-                    type="button"
-                    onClick={startAppointmentRequest}
-                    className="rounded-full border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-neutral-700 transition hover:bg-neutral-50"
-                  >
-                    Прием
-                  </button>
+                  {requestSettings.appeals && (
+                    <button
+                      type="button"
+                      onClick={startAppealRequest}
+                      className="rounded-full border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-neutral-700 transition hover:bg-neutral-50"
+                    >
+                      Обращение
+                    </button>
+                  )}
+                  {requestSettings.appointments && (
+                    <button
+                      type="button"
+                      onClick={startAppointmentRequest}
+                      className="rounded-full border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-neutral-700 transition hover:bg-neutral-50"
+                    >
+                      Прием
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => receiptInputRef.current?.click()}
@@ -2135,24 +2144,32 @@ export default function Home() {
                     ))}
                   </div>
 
-                  <div className="mt-5 flex flex-wrap items-center justify-center gap-2 text-xs text-neutral-500">
-                    <span>Нужно не спросить, а оформить?</span>
-                    <button
-                      type="button"
-                      onClick={startAppealRequest}
-                      className="font-semibold text-emerald-700 hover:text-emerald-800"
-                    >
-                      Оставить обращение
-                    </button>
-                    <span className="text-neutral-300">/</span>
-                    <button
-                      type="button"
-                      onClick={startAppointmentRequest}
-                      className="font-semibold text-violet-700 hover:text-violet-800"
-                    >
-                      Записаться на прием
-                    </button>
-                  </div>
+                  {(requestSettings.appeals || requestSettings.appointments) && (
+                    <div className="mt-5 flex flex-wrap items-center justify-center gap-2 text-xs text-neutral-500">
+                      <span>Нужно не спросить, а оформить?</span>
+                      {requestSettings.appeals && (
+                        <button
+                          type="button"
+                          onClick={startAppealRequest}
+                          className="font-semibold text-emerald-700 hover:text-emerald-800"
+                        >
+                          Оставить обращение
+                        </button>
+                      )}
+                      {requestSettings.appeals && requestSettings.appointments && (
+                        <span className="text-neutral-300">/</span>
+                      )}
+                      {requestSettings.appointments && (
+                        <button
+                          type="button"
+                          onClick={startAppointmentRequest}
+                          className="font-semibold text-violet-700 hover:text-violet-800"
+                        >
+                          Записаться на прием
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   <div className="mt-6 grid w-full gap-2 sm:grid-cols-2 lg:hidden">
                     {GUIDED_SCENARIOS.map((scenario) => (

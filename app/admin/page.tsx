@@ -16,6 +16,7 @@ import { CommandCenter } from "@/components/admin/CommandCenter";
 import { KnowledgeWorkspace } from "@/components/admin/KnowledgeWorkspace";
 import { ModuleFrame, ModuleTabs } from "@/components/admin/ModuleFrame";
 import { HistoryPeriodPicker } from "@/components/admin/HistoryPeriodPicker";
+import { ResidentRequestsSettings } from "@/components/admin/ResidentRequestsSettings";
 import {
   historyPeriodQuery,
   presetPeriod,
@@ -4315,6 +4316,8 @@ export default function AdminPage() {
           </>
         ) : activeTab === "requests" ? (
           <>
+            <ResidentRequestsSettings apiRequest={apiRequest} />
+
             <section className="mb-5 grid gap-3 md:grid-cols-4">
               {requestCategories.map((category) => (
                 <button
