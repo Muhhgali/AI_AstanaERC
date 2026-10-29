@@ -27,6 +27,10 @@ export function KnowledgeTable({
     );
   }
 
+  // Databases without the lifecycle columns have no dates; an all-dash column
+  // only pushes the table wider than the screen.
+  const hasDates = items.some((item) => knowledgeTimestamp(item));
+
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full text-left text-sm">
@@ -36,7 +40,7 @@ export function KnowledgeTable({
             <th className="px-4 py-3 font-medium">Категория</th>
             <th className="px-4 py-3 font-medium">Статус</th>
             <th className="px-4 py-3 font-medium">Язык</th>
-            <th className="px-4 py-3 font-medium">Обновлено</th>
+            {hasDates && <th className="px-4 py-3 font-medium">Обновлено</th>}
             <th className="px-4 py-3 font-medium">Действия</th>
           </tr>
         </thead>
@@ -66,9 +70,11 @@ export function KnowledgeTable({
                 <td className="px-4 py-3 uppercase text-neutral-500">
                   {item.language ?? "ru"}
                 </td>
-                <td className="whitespace-nowrap px-4 py-3 text-neutral-500">
-                  {formatAdminDate(knowledgeTimestamp(item))}
-                </td>
+                {hasDates && (
+                  <td className="whitespace-nowrap px-4 py-3 text-neutral-500">
+                    {formatAdminDate(knowledgeTimestamp(item))}
+                  </td>
+                )}
                 <td className="px-4 py-3">
                   <button
                     type="button"

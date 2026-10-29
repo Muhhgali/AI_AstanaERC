@@ -2965,7 +2965,7 @@ export default function AdminPage() {
             </section>
 
             <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
-              <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 md:flex-row md:items-center md:justify-between">
+              <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <h2 className="font-semibold">Рабочее место менеджера</h2>
                   <p className="mt-1 text-sm text-neutral-500">
@@ -3254,7 +3254,7 @@ export default function AdminPage() {
             </section>
             {isAdminUser && (
               <section className="mt-5 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
-                <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 md:flex-row md:items-center md:justify-between">
+                <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <h2 className="font-semibold">Admin: распределение очереди</h2>
                     <p className="mt-1 text-sm text-neutral-500">
@@ -3572,7 +3572,7 @@ export default function AdminPage() {
               </section>
 
               <section className="rounded-xl border border-neutral-200 bg-white shadow-sm">
-                <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 md:flex-row md:items-center md:justify-between">
+                <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <h2 className="font-semibold">
                       {selectedManagerGroup
@@ -4130,7 +4130,7 @@ export default function AdminPage() {
             </section>
 
             <section className="rounded-xl border border-neutral-200 bg-white shadow-sm">
-              <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 md:flex-row md:items-center md:justify-between">
+              <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <h2 className="font-semibold">Поочередная проверка базы</h2>
                   <p className="mt-1 text-sm text-neutral-500">
@@ -4440,7 +4440,7 @@ export default function AdminPage() {
             </section>
 
             <section className="rounded-xl border border-neutral-200 bg-white shadow-sm">
-              <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 md:flex-row md:items-center md:justify-between">
+              <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <h2 className="font-semibold">{activeRequestStats.title}</h2>
                   <p className="mt-1 text-sm text-neutral-500">
@@ -4779,7 +4779,7 @@ export default function AdminPage() {
             </section>
 
             <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
-              <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 md:flex-row md:items-center md:justify-between">
+              <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <h2 className="font-semibold">Обучение бота</h2>
                   <p className="mt-1 text-sm text-neutral-500">
@@ -4913,7 +4913,7 @@ export default function AdminPage() {
             </section>
 
             <section className="rounded-xl border border-neutral-200 bg-white shadow-sm">
-              <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 md:flex-row md:items-center md:justify-between">
+              <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <h2 className="font-semibold">AI Test Center</h2>
                   <p className="mt-1 text-sm text-neutral-500">
