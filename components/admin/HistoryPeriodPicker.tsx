@@ -36,7 +36,7 @@ export function HistoryPeriodPicker({
               onClick={() => onChange(presetPeriod(preset.id))}
               className={`h-9 rounded-full border px-3.5 text-sm font-medium transition disabled:opacity-60 ${
                 isActive
-                  ? "border-blue-600 bg-blue-600 text-white"
+                  ? "border-blue-600 bg-blue-600 text-on-accent"
                   : "border-neutral-300 bg-white text-neutral-700 hover:border-blue-300 hover:text-blue-700"
               }`}
             >
@@ -57,7 +57,7 @@ export function HistoryPeriodPicker({
             onChange={(event) => {
               if (event.target.value) onChange(monthPeriod(event.target.value));
             }}
-            className={`h-9 rounded-md border bg-white px-2.5 text-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15 ${
+            className={`h-9 rounded-lg border bg-white px-2.5 text-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15 transition ${
               pickedMonth ? "border-blue-600" : "border-neutral-300"
             }`}
           />
@@ -71,7 +71,7 @@ export function HistoryPeriodPicker({
             onChange={(event) => {
               if (event.target.value) onChange(dayPeriod(event.target.value));
             }}
-            className={`h-9 rounded-md border bg-white px-2.5 text-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15 ${
+            className={`h-9 rounded-lg border bg-white px-2.5 text-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15 transition ${
               pickedDay ? "border-blue-600" : "border-neutral-300"
             }`}
           />

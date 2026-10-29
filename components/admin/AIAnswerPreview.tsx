@@ -10,7 +10,7 @@ export function AIAnswerPreview({
   const [question, setQuestion] = useState("Как оплатить ЕПД через Kaspi?");
 
   return (
-    <section className="rounded-2xl border border-neutral-200/80 bg-white p-4">
+    <section className="rounded-xl border border-neutral-200/80 bg-white p-4 shadow-sm">
       <h3 className="text-sm font-semibold text-neutral-800">
         Предпросмотр ответа AI
       </h3>
@@ -34,7 +34,7 @@ export function AIAnswerPreview({
         type="button"
         onClick={() => onOpenTests(question.trim())}
         disabled={!question.trim()}
-        className="mt-3 h-10 w-full rounded-lg bg-blue-600 text-sm font-semibold text-on-accent hover:bg-blue-700 disabled:bg-neutral-300"
+        className="mt-3 h-10 w-full rounded-lg bg-blue-600 text-sm font-semibold text-on-accent hover:bg-blue-700 disabled:bg-neutral-300 inline-flex items-center justify-center gap-1.5 transition"
       >
         Проверить ответ →
       </button>

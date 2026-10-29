@@ -439,6 +439,9 @@ function getKnowledgeStatus(item: Pick<KnowledgeItem, "status" | "verified">) {
   return item.verified ? "verified" : "draft";
 }
 
+// The gaps list sits above the dialogs; keep it short until it is opened.
+const VISIBLE_KNOWLEDGE_GAPS = 5;
+
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("ru-RU", {
     day: "2-digit",
@@ -687,6 +690,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
+  const [showAllKnowledgeGaps, setShowAllKnowledgeGaps] = useState(false);
   const [historyPeriod, setHistoryPeriod] = useState<HistoryPeriod>(() =>
     presetPeriod("latest")
   );
@@ -2833,7 +2837,7 @@ export default function AdminPage() {
       {activeTab === "analytics" ? (
         <>
         <div className="grid gap-6 xl:grid-cols-2">
-          <section className="rounded-2xl border border-neutral-200/80 bg-white p-5">
+          <section className="rounded-xl border border-neutral-200/80 bg-white p-5 shadow-sm">
             <h2 className="text-base font-semibold">Качество ответов</h2>
             <p className="mt-1 text-sm text-neutral-500">
               Полезные оценки, негатив и пробелы базы.
@@ -2851,7 +2855,7 @@ export default function AdminPage() {
               ))}
             </div>
           </section>
-          <section className="rounded-2xl border border-neutral-200/80 bg-white p-5">
+          <section className="rounded-xl border border-neutral-200/80 bg-white p-5 shadow-sm">
             <h2 className="text-base font-semibold">Негативные оценки</h2>
             {(dashboard?.queues.downFeedback.length ?? 0) === 0 ? (
               <p className="mt-3 text-sm text-neutral-500">
@@ -2873,7 +2877,7 @@ export default function AdminPage() {
             )}
           </section>
         </div>
-        <section className="mt-6 rounded-2xl border border-neutral-200/80 bg-white p-5">
+        <section className="mt-6 rounded-xl border border-neutral-200/80 bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
               <h2 className="text-base font-semibold">Операторская очередь</h2>
@@ -2910,7 +2914,7 @@ export default function AdminPage() {
                       onClick={() =>
                         void updateOperatorHandoffStatus(handoff, "in_progress")
                       }
-                      className="h-9 rounded-lg border border-neutral-200 px-3 text-sm font-medium hover:bg-neutral-50"
+                      className="h-9 rounded-lg border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50 inline-flex items-center justify-center gap-1.5 transition"
                     >
                       Принять
                     </button>
@@ -2919,7 +2923,7 @@ export default function AdminPage() {
                       onClick={() =>
                         void updateOperatorHandoffStatus(handoff, "done")
                       }
-                      className="h-9 rounded-lg border border-emerald-200 px-3 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+                      className="h-9 rounded-lg border border-emerald-200 px-3 text-sm font-medium text-emerald-700 hover:bg-emerald-50 inline-flex items-center justify-center gap-1.5 transition"
                     >
                       Закрыть
                     </button>
@@ -2933,7 +2937,7 @@ export default function AdminPage() {
       ) : activeTab === "manager-workspace" ? (
           <>
             <section className="mb-5 grid gap-3 md:grid-cols-3">
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <div className="text-sm text-neutral-500">Мои активные вопросы</div>
                 <div className="mt-2 text-3xl font-semibold">
                   {managerWorkspace?.items.filter((item) =>
@@ -2946,13 +2950,13 @@ export default function AdminPage() {
                   </span>
                 </div>
               </div>
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <div className="text-sm text-neutral-500">Свободно в очереди</div>
                 <div className="mt-2 text-3xl font-semibold">
                   {managerWorkspace?.unassignedCount ?? 0}
                 </div>
               </div>
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <div className="text-sm text-neutral-500">Моя роль</div>
                 <div className="mt-2 text-lg font-semibold">
                   {currentUserRoles.join(", ") || "role not set"}
@@ -2960,7 +2964,7 @@ export default function AdminPage() {
               </div>
             </section>
 
-            <section className="overflow-hidden rounded-lg border border-neutral-200 bg-white">
+            <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
               <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <h2 className="font-semibold">Рабочее место менеджера</h2>
@@ -2978,7 +2982,7 @@ export default function AdminPage() {
                       }
                     }}
                     disabled={managerWorkspaceLoading}
-                    className="h-10 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50 disabled:opacity-60"
+                    className="h-10 rounded-lg border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50 disabled:opacity-60 inline-flex items-center justify-center gap-1.5 transition"
                   >
                     {managerWorkspaceLoading ? "Обновляю..." : "Обновить"}
                   </button>
@@ -2987,7 +2991,7 @@ export default function AdminPage() {
                       void mutateManagerWorkspace({ action: "claim_next" })
                     }
                     disabled={managerWorkspaceSaving}
-                    className="h-10 rounded-md bg-blue-600 px-4 text-sm font-semibold text-on-accent hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                    className="h-10 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-on-accent hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400 inline-flex items-center justify-center gap-1.5 transition"
                   >
                     {managerWorkspaceSaving ? "Беру..." : "Взять следующий"}
                   </button>
@@ -3074,7 +3078,7 @@ export default function AdminPage() {
                                 })
                               }
                               disabled={managerWorkspaceSaving}
-                              className="h-9 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50 disabled:opacity-60"
+                              className="h-9 rounded-lg border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50 disabled:opacity-60 inline-flex items-center justify-center gap-1.5 transition"
                             >
                               Начать
                             </button>
@@ -3092,7 +3096,7 @@ export default function AdminPage() {
                                 })
                               }
                               disabled={managerWorkspaceSaving}
-                              className="h-9 rounded-md border border-red-300 px-3 text-[0px] font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
+                              className="h-9 rounded-lg border border-red-300 px-3 text-[0px] font-medium text-red-700 hover:bg-red-50 disabled:opacity-60 inline-flex items-center justify-center gap-1.5 transition"
                             >
                               <span className="text-sm">Удалить вопрос</span>
                               Пропустить
@@ -3149,7 +3153,7 @@ export default function AdminPage() {
                                 !canEdit ||
                                 !draft.answer.trim()
                               }
-                              className="mt-3 h-10 w-full rounded-md bg-blue-600 px-4 text-sm font-semibold text-on-accent hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                              className="mt-3 h-10 w-full rounded-lg bg-blue-600 px-4 text-sm font-semibold text-on-accent hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400 inline-flex items-center justify-center gap-1.5 transition"
                             >
                               Отправить на проверку
                             </button>
@@ -3161,7 +3165,7 @@ export default function AdminPage() {
                 </div>
               )}
             </section>
-            <section className="mt-5 overflow-hidden rounded-lg border border-neutral-200 bg-white">
+            <section className="mt-5 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
               <div className="border-b border-neutral-200 p-4">
                 <h2 className="font-semibold">История вопросов</h2>
                 <p className="mt-1 text-sm text-neutral-500">
@@ -3206,7 +3210,7 @@ export default function AdminPage() {
                               })
                             }
                             disabled={managerWorkspaceSaving}
-                            className="h-9 rounded-md border border-red-300 px-3 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
+                            className="h-9 rounded-lg border border-red-300 px-3 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60 inline-flex items-center justify-center gap-1.5 transition"
                           >
                             Удалить
                           </button>
@@ -3218,7 +3222,7 @@ export default function AdminPage() {
               </div>
             </section>
 
-            <section className="mt-5 overflow-hidden rounded-lg border border-neutral-200 bg-white">
+            <section className="mt-5 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
               <div className="border-b border-neutral-200 p-4">
                 <h2 className="font-semibold">Общая база знаний</h2>
                 <p className="mt-1 text-sm text-neutral-500">
@@ -3249,7 +3253,7 @@ export default function AdminPage() {
               </div>
             </section>
             {isAdminUser && (
-              <section className="mt-5 overflow-hidden rounded-lg border border-neutral-200 bg-white">
+              <section className="mt-5 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
                 <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 md:flex-row md:items-center md:justify-between">
                   <div>
                     <h2 className="font-semibold">Admin: распределение очереди</h2>
@@ -3260,7 +3264,7 @@ export default function AdminPage() {
                   </div>
                   <button
                     onClick={() => void loadAdminManagerWorkspace()}
-                    className="h-10 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50"
+                    className="h-10 rounded-lg border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50 inline-flex items-center justify-center gap-1.5 transition"
                   >
                     Обновить очередь
                   </button>
@@ -3310,7 +3314,7 @@ export default function AdminPage() {
                                     [item.id]: e.target.value,
                                   }))
                                 }
-                                className="h-10 w-full rounded-md border border-neutral-300 px-3 text-sm outline-none focus:border-blue-600"
+                                className="h-10 w-full rounded-lg border border-neutral-300 px-3 text-sm outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                                 placeholder="manager user UUID"
                               />
                               <div className="mt-2 grid grid-cols-2 gap-2">
@@ -3327,7 +3331,7 @@ export default function AdminPage() {
                                     managerWorkspaceSaving ||
                                     !adminAssignInputs[item.id]?.trim()
                                   }
-                                  className="h-9 rounded-md bg-blue-600 px-3 text-xs font-semibold text-on-accent hover:bg-blue-700 disabled:bg-neutral-400"
+                                  className="h-9 rounded-lg bg-blue-600 px-3 text-xs font-semibold text-on-accent hover:bg-blue-700 disabled:bg-neutral-400 inline-flex items-center justify-center gap-1.5 transition"
                                 >
                                   Назначить
                                 </button>
@@ -3339,7 +3343,7 @@ export default function AdminPage() {
                                       expectedVersion: item.manager_version,
                                     })
                                   }
-                                  className="h-9 rounded-md border border-neutral-300 px-3 text-xs font-medium hover:bg-neutral-50"
+                                  className="h-9 rounded-lg border border-neutral-300 px-3 text-xs font-medium hover:bg-neutral-50 inline-flex items-center justify-center gap-1.5 transition"
                                 >
                                   В очередь
                                 </button>
@@ -3351,7 +3355,7 @@ export default function AdminPage() {
                                       expectedVersion: item.manager_version,
                                     })
                                   }
-                                  className="h-9 rounded-md border border-amber-300 px-3 text-xs font-medium text-amber-700 hover:bg-amber-50"
+                                  className="h-9 rounded-lg border border-amber-300 px-3 text-xs font-medium text-amber-700 hover:bg-amber-50 inline-flex items-center justify-center gap-1.5 transition"
                                 >
                                   Доработать
                                 </button>
@@ -3363,7 +3367,7 @@ export default function AdminPage() {
                                       expectedVersion: item.manager_version,
                                     })
                                   }
-                                  className="h-9 rounded-md border border-emerald-300 px-3 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
+                                  className="h-9 rounded-lg border border-emerald-300 px-3 text-xs font-medium text-emerald-700 hover:bg-emerald-50 inline-flex items-center justify-center gap-1.5 transition"
                                 >
                                   Закрыть
                                 </button>
@@ -3385,25 +3389,25 @@ export default function AdminPage() {
         ) : activeTab === "suppliers" ? (
           <>
             <section className="mb-5 grid gap-3 md:grid-cols-4">
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <div className="text-sm text-neutral-500">Всего поставщиков</div>
                 <div className="mt-2 text-3xl font-semibold">
                   {suppliers.length}
                 </div>
               </div>
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <div className="text-sm text-neutral-500">С менеджером</div>
                 <div className="mt-2 text-3xl font-semibold">
                   {assignedSuppliersCount}
                 </div>
               </div>
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <div className="text-sm text-neutral-500">Без менеджера</div>
                 <div className="mt-2 text-3xl font-semibold">
                   {suppliers.length - assignedSuppliersCount}
                 </div>
               </div>
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <div className="text-sm text-neutral-500">Групп менеджеров</div>
                 <div className="mt-2 text-3xl font-semibold">
                   {supplierManagers.length}
@@ -3412,7 +3416,7 @@ export default function AdminPage() {
             </section>
 
             <section className="mb-5 grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-              <div className="rounded-lg border border-neutral-200 bg-white p-5">
+              <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
                 <div className="flex items-center gap-2">
                   <UsersRound className="h-5 w-5 text-blue-700" />
                   <h2 className="font-semibold">Покрытие менеджерами</h2>
@@ -3447,7 +3451,7 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              <div className="rounded-lg border border-neutral-200 bg-white p-5">
+              <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
                 <h2 className="font-semibold">Топ менеджеров по организациям</h2>
                 <p className="mt-1 text-sm text-neutral-500">
                   Быстро видно нагрузку и распределение поставщиков.
@@ -3489,7 +3493,7 @@ export default function AdminPage() {
             </section>
 
             <div className="grid gap-6 lg:grid-cols-[340px_1fr]">
-              <section className="h-fit rounded-lg border border-neutral-200 bg-white">
+              <section className="h-fit rounded-xl border border-neutral-200 bg-white shadow-sm">
                 <div className="border-b border-neutral-200 p-4">
                   <h2 className="font-semibold">Менеджеры</h2>
                   <p className="mt-1 text-sm text-neutral-500">
@@ -3558,7 +3562,7 @@ export default function AdminPage() {
                       </div>
                       <button
                         onClick={() => editManager(manager)}
-                        className="mt-3 h-8 rounded-md border border-neutral-300 bg-white px-3 text-xs font-medium hover:bg-neutral-50"
+                        className="mt-3 h-8 rounded-lg border border-neutral-300 bg-white px-3 text-xs font-medium hover:bg-neutral-50 inline-flex items-center justify-center gap-1.5 transition"
                       >
                         Редактировать менеджера
                       </button>
@@ -3567,7 +3571,7 @@ export default function AdminPage() {
                 </div>
               </section>
 
-              <section className="rounded-lg border border-neutral-200 bg-white">
+              <section className="rounded-xl border border-neutral-200 bg-white shadow-sm">
                 <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 md:flex-row md:items-center md:justify-between">
                   <div>
                     <h2 className="font-semibold">
@@ -3584,18 +3588,18 @@ export default function AdminPage() {
                     <input
                       value={supplierCodeQuery}
                       onChange={(e) => setSupplierCodeQuery(e.target.value)}
-                      className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 md:w-40"
+                      className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 md:w-40 transition focus:ring-2 focus:ring-blue-600/15"
                       placeholder="Код поставщика"
                     />
                     <input
                       value={supplierQuery}
                       onChange={(e) => setSupplierQuery(e.target.value)}
-                      className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 md:w-96"
+                      className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 md:w-96 transition focus:ring-2 focus:ring-blue-600/15"
                       placeholder="Поиск по организации, БИН, менеджеру, району"
                     />
                     <button
                       onClick={() => void loadSuppliers()}
-                      className="h-10 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50"
+                      className="h-10 rounded-lg border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50 inline-flex items-center justify-center gap-1.5 transition"
                     >
                       Обновить
                     </button>
@@ -3631,14 +3635,14 @@ export default function AdminPage() {
                       <div className="flex gap-2">
                         <button
                           onClick={resetManagerForm}
-                          className="h-10 rounded-md border border-neutral-300 bg-white px-3 text-sm font-medium hover:bg-neutral-50"
+                          className="h-10 rounded-lg border border-neutral-300 bg-white px-3 text-sm font-medium hover:bg-neutral-50 inline-flex items-center justify-center gap-1.5 transition"
                         >
                           Отмена
                         </button>
                         <button
                           onClick={() => void saveManager()}
                           disabled={managerSaving}
-                          className="h-10 rounded-md bg-blue-600 px-4 text-sm font-semibold text-on-accent hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                          className="h-10 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-on-accent hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400 inline-flex items-center justify-center gap-1.5 transition"
                         >
                           {managerSaving ? "Сохраняю..." : "Сохранить"}
                         </button>
@@ -3659,7 +3663,7 @@ export default function AdminPage() {
                                 : prev
                             )
                           }
-                          className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                          className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                         />
                       </label>
 
@@ -3679,7 +3683,7 @@ export default function AdminPage() {
                                 : prev
                             )
                           }
-                          className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                          className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                           placeholder="https://..."
                         />
                       </label>
@@ -3700,7 +3704,7 @@ export default function AdminPage() {
                                 : prev
                             )
                           }
-                          className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                          className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                           placeholder="+7..."
                         />
                       </label>
@@ -3721,7 +3725,7 @@ export default function AdminPage() {
                                 : prev
                             )
                           }
-                          className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                          className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                           placeholder="manager@aerc.kz"
                         />
                       </label>
@@ -3741,14 +3745,14 @@ export default function AdminPage() {
                       <div className="flex gap-2">
                         <button
                           onClick={resetSupplierForm}
-                          className="h-10 rounded-md border border-neutral-300 bg-white px-3 text-sm font-medium hover:bg-neutral-50"
+                          className="h-10 rounded-lg border border-neutral-300 bg-white px-3 text-sm font-medium hover:bg-neutral-50 inline-flex items-center justify-center gap-1.5 transition"
                         >
                           Отмена
                         </button>
                         <button
                           onClick={() => void saveSupplier()}
                           disabled={supplierSaving}
-                          className="h-10 rounded-md bg-blue-600 px-4 text-sm font-semibold text-on-accent hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                          className="h-10 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-on-accent hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400 inline-flex items-center justify-center gap-1.5 transition"
                         >
                           {supplierSaving ? "Сохраняю..." : "Сохранить"}
                         </button>
@@ -3773,7 +3777,7 @@ export default function AdminPage() {
                                 : prev
                             )
                           }
-                          className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                          className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                         />
                       </label>
 
@@ -3790,7 +3794,7 @@ export default function AdminPage() {
                                 : prev
                             )
                           }
-                          className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                          className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                         />
                       </label>
 
@@ -3805,7 +3809,7 @@ export default function AdminPage() {
                               prev ? { ...prev, bin: e.target.value } : prev
                             )
                           }
-                          className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                          className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                         />
                       </label>
 
@@ -3822,7 +3826,7 @@ export default function AdminPage() {
                                 : prev
                             )
                           }
-                          className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                          className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                         />
                       </label>
 
@@ -3842,7 +3846,7 @@ export default function AdminPage() {
                                 : prev
                             )
                           }
-                          className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                          className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                           placeholder="https://..."
                         />
                       </label>
@@ -3863,7 +3867,7 @@ export default function AdminPage() {
                                 : prev
                             )
                           }
-                          className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                          className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                         />
                       </label>
 
@@ -3880,7 +3884,7 @@ export default function AdminPage() {
                                 : prev
                             )
                           }
-                          className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                          className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                         />
                       </label>
 
@@ -3897,7 +3901,7 @@ export default function AdminPage() {
                                 : prev
                             )
                           }
-                          className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                          className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                         />
                       </label>
 
@@ -3914,7 +3918,7 @@ export default function AdminPage() {
                                 : prev
                             )
                           }
-                          className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                          className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                         />
                       </label>
 
@@ -3931,7 +3935,7 @@ export default function AdminPage() {
                                 : prev
                             )
                           }
-                          className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                          className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                         />
                       </label>
 
@@ -3948,7 +3952,7 @@ export default function AdminPage() {
                                 : prev
                             )
                           }
-                          className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                          className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                         />
                       </label>
 
@@ -3965,7 +3969,7 @@ export default function AdminPage() {
                                 : prev
                             )
                           }
-                          className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                          className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                         />
                       </label>
 
@@ -3982,7 +3986,7 @@ export default function AdminPage() {
                                 : prev
                             )
                           }
-                          className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                          className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                         />
                       </label>
                     </div>
@@ -4045,7 +4049,7 @@ export default function AdminPage() {
                           </div>
                           <button
                             onClick={() => editSupplier(supplier)}
-                            className="h-9 rounded-md border border-neutral-300 bg-white px-3 text-sm font-medium hover:bg-neutral-50"
+                            className="h-9 rounded-lg border border-neutral-300 bg-white px-3 text-sm font-medium hover:bg-neutral-50 inline-flex items-center justify-center gap-1.5 transition"
                           >
                             Изменить
                           </button>
@@ -4105,19 +4109,19 @@ export default function AdminPage() {
         ) : activeTab === "review" ? (
           <>
             <section className="mb-5 grid gap-3 md:grid-cols-3">
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <div className="text-sm text-neutral-500">Осталось проверить</div>
                 <div className="mt-2 text-3xl font-semibold">
                   {reviewItems.length}
                 </div>
               </div>
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <div className="text-sm text-neutral-500">Проверено</div>
                 <div className="mt-2 text-3xl font-semibold">
                   {verifiedCount}
                 </div>
               </div>
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <div className="text-sm text-neutral-500">Текущая запись</div>
                 <div className="mt-2 text-3xl font-semibold">
                   {reviewItems.length > 0 ? reviewItemIndex + 1 : 0}
@@ -4125,7 +4129,7 @@ export default function AdminPage() {
               </div>
             </section>
 
-            <section className="rounded-lg border border-neutral-200 bg-white">
+            <section className="rounded-xl border border-neutral-200 bg-white shadow-sm">
               <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <h2 className="font-semibold">Поочередная проверка базы</h2>
@@ -4139,13 +4143,13 @@ export default function AdminPage() {
                     onClick={() => void syncSitePages()}
                     disabled={siteSyncing}
                     title="Загрузить страницы сайта aerc.kz в базу знаний бота"
-                    className="h-10 rounded-md border border-blue-300 bg-blue-50 px-3 text-sm font-medium text-blue-800 hover:bg-blue-100 disabled:opacity-60"
+                    className="h-10 rounded-lg border border-blue-300 bg-blue-50 px-3 text-sm font-medium text-blue-800 hover:bg-blue-100 disabled:opacity-60 inline-flex items-center justify-center gap-1.5 transition"
                   >
                     {siteSyncing ? "Загружаю сайт..." : "Загрузить сайт в базу"}
                   </button>
                   <button
                     onClick={() => void loadKnowledge()}
-                    className="h-10 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50"
+                    className="h-10 rounded-lg border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50 inline-flex items-center justify-center gap-1.5 transition"
                   >
                     Обновить
                   </button>
@@ -4195,7 +4199,7 @@ export default function AdminPage() {
                             title: e.target.value,
                           })
                         }
-                        className="h-11 w-full rounded-md border border-neutral-300 bg-white px-3 outline-none focus:border-blue-600"
+                        className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                       />
                     </label>
 
@@ -4211,7 +4215,7 @@ export default function AdminPage() {
                             category: e.target.value,
                           })
                         }
-                        className="h-11 w-full rounded-md border border-neutral-300 bg-white px-3 outline-none focus:border-blue-600"
+                        className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                       >
                         {CATEGORIES.map((category) => (
                           <option key={category.id} value={category.id}>
@@ -4250,7 +4254,7 @@ export default function AdminPage() {
                               source: e.target.value,
                             })
                           }
-                          className="h-11 w-full rounded-md border border-neutral-300 bg-white px-3 outline-none focus:border-blue-600"
+                          className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                         />
                       </label>
 
@@ -4269,7 +4273,7 @@ export default function AdminPage() {
                               priority: Number(e.target.value),
                             })
                           }
-                          className="h-11 w-full rounded-md border border-neutral-300 bg-white px-3 outline-none focus:border-blue-600"
+                          className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                         />
                       </label>
                     </div>
@@ -4285,21 +4289,21 @@ export default function AdminPage() {
                       <button
                         onClick={() => void confirmReviewItem()}
                         disabled={saving}
-                        className="h-11 rounded-md bg-blue-600 px-4 text-sm font-semibold text-on-accent hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                        className="h-10 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-on-accent hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400 inline-flex items-center justify-center gap-1.5 transition"
                       >
                         {saving ? "Сохраняю..." : "Подтвердить и дальше"}
                       </button>
                       <button
                         onClick={skipReviewItem}
                         disabled={saving || reviewItems.length < 2}
-                        className="h-11 rounded-md border border-neutral-300 bg-white px-4 text-sm font-semibold hover:bg-neutral-50 disabled:cursor-not-allowed disabled:text-neutral-400"
+                        className="h-10 rounded-lg border border-neutral-300 bg-white px-4 text-sm font-medium hover:bg-neutral-50 disabled:cursor-not-allowed disabled:text-neutral-400 inline-flex items-center justify-center gap-1.5 transition"
                       >
                         Пропустить
                       </button>
                       <button
                         onClick={() => void deleteItem(currentReviewItem)}
                         disabled={saving}
-                        className="h-11 rounded-md border border-red-200 bg-white px-4 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:text-neutral-400"
+                        className="h-10 rounded-lg border border-red-200 bg-white px-4 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:text-neutral-400 inline-flex items-center justify-center gap-1.5 transition"
                       >
                         Удалить запись
                       </button>
@@ -4362,13 +4366,13 @@ export default function AdminPage() {
             </section>
 
             <section className="mb-5 grid gap-3 md:grid-cols-4">
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <div className="text-sm text-neutral-500">Новые</div>
                 <div className="mt-2 text-3xl font-semibold">
                   {activeRequestStats.pending}
                 </div>
               </div>
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <div className="text-sm text-neutral-500">
                   {activeRequestCategory === "appointment"
                     ? "Подтверждено"
@@ -4378,13 +4382,13 @@ export default function AdminPage() {
                   {activeRequestStats.active}
                 </div>
               </div>
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <div className="text-sm text-neutral-500">Закрыто</div>
                 <div className="mt-2 text-3xl font-semibold">
                   {activeRequestStats.closed}
                 </div>
               </div>
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <div className="text-sm text-neutral-500">Всего</div>
                 <div className="mt-2 text-3xl font-semibold">
                   {activeRequestStats.total}
@@ -4424,7 +4428,7 @@ export default function AdminPage() {
               ].map((step) => (
                 <div
                   key={step.title}
-                  className="rounded-lg border border-neutral-200 bg-white p-4"
+                  className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm"
                 >
                   <step.icon className="h-5 w-5 text-blue-700" />
                   <div className="mt-3 font-semibold">{step.title}</div>
@@ -4435,7 +4439,7 @@ export default function AdminPage() {
               ))}
             </section>
 
-            <section className="rounded-lg border border-neutral-200 bg-white">
+            <section className="rounded-xl border border-neutral-200 bg-white shadow-sm">
               <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <h2 className="font-semibold">{activeRequestStats.title}</h2>
@@ -4450,7 +4454,7 @@ export default function AdminPage() {
                 </div>
                 <button
                   onClick={() => void loadRequests()}
-                  className="h-10 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50"
+                  className="h-10 rounded-lg border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50 inline-flex items-center justify-center gap-1.5 transition"
                 >
                   Обновить
                 </button>
@@ -4551,7 +4555,7 @@ export default function AdminPage() {
                                 "in_progress"
                               )
                             }
-                            className="h-9 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50"
+                            className="h-9 rounded-lg border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50 inline-flex items-center justify-center gap-1.5 transition"
                           >
                             В работу
                           </button>
@@ -4559,7 +4563,7 @@ export default function AdminPage() {
                             onClick={() =>
                               void updateMeterCorrectionStatus(request, "done")
                             }
-                            className="h-9 rounded-md border border-emerald-200 px-3 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+                            className="h-9 rounded-lg border border-emerald-200 px-3 text-sm font-medium text-emerald-700 hover:bg-emerald-50 inline-flex items-center justify-center gap-1.5 transition"
                           >
                             Закрыть
                           </button>
@@ -4570,13 +4574,13 @@ export default function AdminPage() {
                                 "rejected"
                               )
                             }
-                            className="h-9 rounded-md border border-red-200 px-3 text-sm font-medium text-red-700 hover:bg-red-50"
+                            className="h-9 rounded-lg border border-red-200 px-3 text-sm font-medium text-red-700 hover:bg-red-50 inline-flex items-center justify-center gap-1.5 transition"
                           >
                             Отклонить
                           </button>
                           <button
                             onClick={() => void removeRequest("meter", request)}
-                            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-neutral-300 px-3 text-sm font-medium text-neutral-600 hover:bg-neutral-50"
+                            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-neutral-300 px-3 text-sm font-medium text-neutral-600 hover:bg-neutral-50 transition"
                           >
                             <Archive className="h-4 w-4" />
                             Убрать
@@ -4638,7 +4642,7 @@ export default function AdminPage() {
                             onClick={() =>
                               void updateAppealStatus(request, "in_progress")
                             }
-                            className="h-9 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50"
+                            className="h-9 rounded-lg border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50 inline-flex items-center justify-center gap-1.5 transition"
                           >
                             Принято
                           </button>
@@ -4646,7 +4650,7 @@ export default function AdminPage() {
                             onClick={() =>
                               void updateAppealStatus(request, "done")
                             }
-                            className="h-9 rounded-md border border-emerald-200 px-3 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+                            className="h-9 rounded-lg border border-emerald-200 px-3 text-sm font-medium text-emerald-700 hover:bg-emerald-50 inline-flex items-center justify-center gap-1.5 transition"
                           >
                             Закрыть
                           </button>
@@ -4654,13 +4658,13 @@ export default function AdminPage() {
                             onClick={() =>
                               void updateAppealStatus(request, "rejected")
                             }
-                            className="h-9 rounded-md border border-red-200 px-3 text-sm font-medium text-red-700 hover:bg-red-50"
+                            className="h-9 rounded-lg border border-red-200 px-3 text-sm font-medium text-red-700 hover:bg-red-50 inline-flex items-center justify-center gap-1.5 transition"
                           >
                             Отклонить
                           </button>
                           <button
                             onClick={() => void removeRequest("appeal", request)}
-                            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-neutral-300 px-3 text-sm font-medium text-neutral-600 hover:bg-neutral-50"
+                            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-neutral-300 px-3 text-sm font-medium text-neutral-600 hover:bg-neutral-50 transition"
                           >
                             <Archive className="h-4 w-4" />
                             Убрать
@@ -4715,7 +4719,7 @@ export default function AdminPage() {
                                 "confirmed"
                               )
                             }
-                            className="h-9 rounded-md border border-amber-200 px-3 text-sm font-medium text-amber-700 hover:bg-amber-50"
+                            className="h-9 rounded-lg border border-amber-200 px-3 text-sm font-medium text-amber-700 hover:bg-amber-50 inline-flex items-center justify-center gap-1.5 transition"
                           >
                             Подтвердить
                           </button>
@@ -4723,7 +4727,7 @@ export default function AdminPage() {
                             onClick={() =>
                               void updateAppointmentStatus(request, "done")
                             }
-                            className="h-9 rounded-md border border-emerald-200 px-3 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+                            className="h-9 rounded-lg border border-emerald-200 px-3 text-sm font-medium text-emerald-700 hover:bg-emerald-50 inline-flex items-center justify-center gap-1.5 transition"
                           >
                             Завершить
                           </button>
@@ -4734,7 +4738,7 @@ export default function AdminPage() {
                                 "cancelled"
                               )
                             }
-                            className="h-9 rounded-md border border-red-200 px-3 text-sm font-medium text-red-700 hover:bg-red-50"
+                            className="h-9 rounded-lg border border-red-200 px-3 text-sm font-medium text-red-700 hover:bg-red-50 inline-flex items-center justify-center gap-1.5 transition"
                           >
                             Отменить
                           </button>
@@ -4742,7 +4746,7 @@ export default function AdminPage() {
                             onClick={() =>
                               void removeRequest("appointment", request)
                             }
-                            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-neutral-300 px-3 text-sm font-medium text-neutral-600 hover:bg-neutral-50"
+                            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-neutral-300 px-3 text-sm font-medium text-neutral-600 hover:bg-neutral-50 transition"
                           >
                             <Archive className="h-4 w-4" />
                             Убрать
@@ -4758,23 +4762,23 @@ export default function AdminPage() {
         ) : activeTab === "learning" ? (
           <>
             <section className="mb-5 grid gap-3 md:grid-cols-3">
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <div className="text-sm text-neutral-500">Открытых тем</div>
                 <div className="mt-2 text-3xl font-semibold">
                   {knowledgeGaps.length}
                 </div>
               </div>
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <div className="text-sm text-neutral-500">Режим</div>
                 <div className="mt-2 text-2xl font-semibold">бот учится</div>
               </div>
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <div className="text-sm text-neutral-500">По умолчанию</div>
                 <div className="mt-2 text-2xl font-semibold">review</div>
               </div>
             </section>
 
-            <section className="overflow-hidden rounded-lg border border-neutral-200 bg-white">
+            <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
               <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <h2 className="font-semibold">Обучение бота</h2>
@@ -4785,7 +4789,7 @@ export default function AdminPage() {
                 <button
                   onClick={() => void loadLearningQuestion()}
                   disabled={learningLoading}
-                  className="h-10 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50 disabled:opacity-60"
+                  className="h-10 rounded-lg border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50 disabled:opacity-60 inline-flex items-center justify-center gap-1.5 transition"
                 >
                   {learningLoading ? "Ищу вопрос..." : "Следующий вопрос"}
                 </button>
@@ -4846,7 +4850,7 @@ export default function AdminPage() {
                     <select
                       value={learningCategory}
                       onChange={(e) => setLearningCategory(e.target.value)}
-                      className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                      className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                     >
                       {CATEGORIES.map((category) => (
                         <option key={category.id} value={category.id}>
@@ -4875,7 +4879,7 @@ export default function AdminPage() {
                       !learningSession?.gap ||
                       !learningAnswer.trim()
                     }
-                    className="mt-4 h-11 w-full rounded-md bg-blue-600 px-4 text-sm font-semibold text-on-accent hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                    className="mt-4 h-10 w-full rounded-lg bg-blue-600 px-4 text-sm font-semibold text-on-accent hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400 inline-flex items-center justify-center gap-1.5 transition"
                   >
                     {learningSaving ? "Сохраняю..." : "Сохранить объяснение"}
                   </button>
@@ -4892,23 +4896,23 @@ export default function AdminPage() {
         ) : activeTab === "ai-tests" ? (
           <>
             <section className="mb-5 grid gap-3 md:grid-cols-3">
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <div className="text-sm text-neutral-500">Real-world cases</div>
                 <div className="mt-2 text-3xl font-semibold">
                   {aiTests.length}
                 </div>
               </div>
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <div className="text-sm text-neutral-500">OpenAI при открытии</div>
                 <div className="mt-2 text-3xl font-semibold">0</div>
               </div>
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <div className="text-sm text-neutral-500">Bulk limit</div>
                 <div className="mt-2 text-3xl font-semibold">10</div>
               </div>
             </section>
 
-            <section className="rounded-lg border border-neutral-200 bg-white">
+            <section className="rounded-xl border border-neutral-200 bg-white shadow-sm">
               <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <h2 className="font-semibold">AI Test Center</h2>
@@ -4919,7 +4923,7 @@ export default function AdminPage() {
                 <button
                   onClick={() => void loadAiTests()}
                   disabled={aiTestsLoading}
-                  className="h-10 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50 disabled:opacity-60"
+                  className="h-10 rounded-lg border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50 disabled:opacity-60 inline-flex items-center justify-center gap-1.5 transition"
                 >
                   {aiTestsLoading ? "Загружаю..." : "Обновить"}
                 </button>
@@ -4929,13 +4933,13 @@ export default function AdminPage() {
                 <input
                   value={aiTestQuery}
                   onChange={(e) => setAiTestQuery(e.target.value)}
-                  className="h-10 rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                  className="h-10 rounded-lg border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                   placeholder="Поиск по вопросу, тегу, категории"
                 />
                 <select
                   value={aiTestCategory}
                   onChange={(e) => setAiTestCategory(e.target.value)}
-                  className="h-10 rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                  className="h-10 rounded-lg border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                 >
                   <option value="all">Все категории</option>
                   {CATEGORIES.map((category) => (
@@ -4961,7 +4965,7 @@ export default function AdminPage() {
                         Math.max(1, Math.min(25, Number(e.target.value) || 1))
                       )
                     }
-                    className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                    className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                   />
                 </label>
 
@@ -4974,7 +4978,7 @@ export default function AdminPage() {
                     onChange={(e) =>
                       setAiTestDifficulty(e.target.value as AiTestDifficulty)
                     }
-                    className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600"
+                    className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 transition focus:ring-2 focus:ring-blue-600/15"
                   >
                     <option value="basic">Базовая</option>
                     <option value="medium">Средняя</option>
@@ -5020,7 +5024,7 @@ export default function AdminPage() {
                     <button
                       onClick={() => void generateAiTests()}
                       disabled={aiTestsLoading}
-                      className="h-10 w-full rounded-md bg-neutral-900 px-3 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-60"
+                      className="h-10 w-full rounded-lg bg-neutral-900 px-3 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-60 inline-flex items-center justify-center gap-1.5 transition"
                     >
                       {aiTestsLoading
                         ? "Генерирую..."
@@ -5029,7 +5033,7 @@ export default function AdminPage() {
                     <button
                       onClick={() => void runAiTests()}
                       disabled={aiTestsLoading || aiTests.length === 0}
-                      className="h-10 w-full rounded-md border border-blue-300 bg-blue-50 px-3 text-sm font-medium text-blue-800 hover:bg-blue-100 disabled:opacity-60"
+                      className="h-10 w-full rounded-lg border border-blue-300 bg-blue-50 px-3 text-sm font-medium text-blue-800 hover:bg-blue-100 disabled:opacity-60 inline-flex items-center justify-center gap-1.5 transition"
                     >
                       Запустить первые 5
                     </button>
@@ -5126,7 +5130,7 @@ export default function AdminPage() {
         ) : activeTab === "history" ? (
           <>
             <section className="mb-5 grid gap-3 md:grid-cols-4">
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <div className="text-sm text-neutral-500">
                   Диалогов · {historyPeriod.label.toLowerCase()}
                 </div>
@@ -5134,19 +5138,19 @@ export default function AdminPage() {
                   {resolvedHistoryStats.totalConversations}
                 </div>
               </div>
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <div className="text-sm text-neutral-500">Полезно</div>
                 <div className="mt-2 text-3xl font-semibold">
                   {feedbackStats.up}
                 </div>
               </div>
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <div className="text-sm text-neutral-500">Не помогло</div>
                 <div className="mt-2 text-3xl font-semibold">
                   {feedbackStats.down}
                 </div>
               </div>
-              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <div className="text-sm text-neutral-500">
                   Тем к дополнению
                 </div>
@@ -5156,7 +5160,7 @@ export default function AdminPage() {
               </div>
             </section>
 
-            <section className="mb-5 rounded-lg border border-neutral-200 bg-white">
+            <section className="mb-5 rounded-xl border border-neutral-200 bg-white shadow-sm">
               <div className="border-b border-neutral-200 p-4">
                 <h2 className="font-semibold">Нужно дополнить базу</h2>
                 <p className="mt-1 text-sm text-neutral-500">
@@ -5175,7 +5179,10 @@ export default function AdminPage() {
                 </div>
               ) : (
                 <div className="divide-y divide-neutral-200">
-                  {filteredKnowledgeGaps.map((gap) => (
+                  {(showAllKnowledgeGaps
+                    ? filteredKnowledgeGaps
+                    : filteredKnowledgeGaps.slice(0, VISIBLE_KNOWLEDGE_GAPS)
+                  ).map((gap) => (
                     <article key={gap.id} className="p-4">
                       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                         <div className="min-w-0">
@@ -5202,13 +5209,13 @@ export default function AdminPage() {
                         <div className="flex shrink-0 gap-2">
                           <button
                             onClick={() => void createKnowledgeFromGap(gap)}
-                            className="h-9 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50"
+                            className="h-9 rounded-lg border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50 inline-flex items-center justify-center gap-1.5 transition"
                           >
                             Добавить в базу
                           </button>
                           <button
                             onClick={() => void closeKnowledgeGap(gap)}
-                            className="h-9 rounded-md border border-neutral-300 px-3 text-sm font-medium text-neutral-600 hover:bg-neutral-50"
+                            className="h-9 rounded-lg border border-neutral-300 px-3 text-sm font-medium text-neutral-600 hover:bg-neutral-50 inline-flex items-center justify-center gap-1.5 transition"
                           >
                             Закрыть
                           </button>
@@ -5218,9 +5225,24 @@ export default function AdminPage() {
                   ))}
                 </div>
               )}
+
+              {!gapSetupRequired &&
+                filteredKnowledgeGaps.length > VISIBLE_KNOWLEDGE_GAPS && (
+                  <div className="border-t border-neutral-200 p-3 text-center">
+                    <button
+                      type="button"
+                      onClick={() => setShowAllKnowledgeGaps((value) => !value)}
+                      className="h-9 rounded-lg px-3 text-sm font-medium text-blue-700 transition hover:bg-blue-50"
+                    >
+                      {showAllKnowledgeGaps
+                        ? "Свернуть"
+                        : `Показать все (${filteredKnowledgeGaps.length})`}
+                    </button>
+                  </div>
+                )}
             </section>
 
-            <section className="rounded-lg border border-neutral-200 bg-white">
+            <section className="rounded-xl border border-neutral-200 bg-white shadow-sm">
               <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <h2 className="font-semibold">История вопросов</h2>
@@ -5245,12 +5267,12 @@ export default function AdminPage() {
                   <input
                     value={historyQuery}
                     onChange={(e) => setHistoryQuery(e.target.value)}
-                    className="h-10 w-full rounded-md border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 md:w-80"
+                    className="h-10 w-full rounded-lg border border-neutral-300 bg-white px-3 text-sm outline-none focus:border-blue-600 md:w-80 transition focus:ring-2 focus:ring-blue-600/15"
                     placeholder="Поиск по истории"
                   />
                   <button
                     onClick={() => void loadHistory()}
-                    className="h-10 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50"
+                    className="h-10 rounded-lg border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50 inline-flex items-center justify-center gap-1.5 transition"
                   >
                     Обновить
                   </button>
@@ -5360,13 +5382,13 @@ export default function AdminPage() {
                               onClick={() =>
                                 createKnowledgeFromQuestion(conversation)
                               }
-                              className="h-9 rounded-md border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50"
+                              className="h-9 rounded-lg border border-neutral-300 px-3 text-sm font-medium hover:bg-neutral-50 inline-flex items-center justify-center gap-1.5 transition"
                             >
                               Создать ответ
                             </button>
                             <button
                               onClick={() => void archiveConversation(conversation)}
-                              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-neutral-300 px-3 text-sm font-medium text-neutral-600 hover:bg-neutral-50"
+                              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-neutral-300 px-3 text-sm font-medium text-neutral-600 hover:bg-neutral-50 transition"
                             >
                               <Archive className="h-4 w-4" />
                               Убрать
@@ -5428,7 +5450,7 @@ export default function AdminPage() {
                           offset: resolvedHistoryStats.loadedConversations,
                         })
                       }
-                      className="h-10 rounded-md border border-neutral-300 bg-white px-4 text-sm font-medium text-neutral-800 hover:bg-neutral-50 disabled:opacity-60"
+                      className="h-10 rounded-lg border border-neutral-300 bg-white px-4 text-sm font-medium text-neutral-800 hover:bg-neutral-50 disabled:opacity-60 inline-flex items-center justify-center gap-1.5 transition"
                     >
                       {historyLoadingMore ? "Загружаю..." : "Показать ещё 500"}
                     </button>

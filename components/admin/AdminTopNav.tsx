@@ -110,8 +110,8 @@ export function AdminTopNav({
                     onSearchSubmit();
                   }
                 }}
-                className="h-9 w-56 rounded-lg border border-neutral-200 bg-neutral-50 pl-9 pr-12 text-sm outline-none transition focus:border-blue-500 focus:bg-white lg:w-72"
-                placeholder="Поиск по базе знаний"
+                className="h-9 w-56 rounded-lg border border-neutral-300 bg-neutral-50 pl-9 pr-12 text-sm outline-none transition focus:border-blue-600 focus:bg-white lg:w-72 focus:ring-2 focus:ring-blue-600/15"
+                placeholder="Поиск по базе"
                 aria-label="Глобальный поиск"
               />
               <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded border border-neutral-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-neutral-400">
@@ -187,7 +187,7 @@ export function AdminTopNav({
           <button
             type="button"
             onClick={onLogout}
-            className="h-9 rounded-lg border border-neutral-200 bg-white px-3 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
+            className="h-9 rounded-lg border border-neutral-300 bg-white px-3 text-sm font-medium text-neutral-700 hover:bg-neutral-50 inline-flex items-center justify-center gap-1.5 transition"
           >
             Выйти
           </button>

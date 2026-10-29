@@ -132,7 +132,7 @@ function KnowledgeStateChart({
   const draft = (counts.draft / total) * 100;
 
   return (
-    <section className="rounded-2xl border border-neutral-200/80 bg-white p-5">
+    <section className="rounded-xl border border-neutral-200/80 bg-white p-5 shadow-sm">
       <h3 className="text-base font-semibold">Состояние базы знаний</h3>
       <div className="mt-5 flex items-center gap-5">
         <div
@@ -192,7 +192,7 @@ function RecentKnowledgeChanges({ items }: { items: KnowledgeListItem[] }) {
     .slice(0, 4);
 
   return (
-    <section className="rounded-2xl border border-neutral-200/80 bg-white p-5">
+    <section className="rounded-xl border border-neutral-200/80 bg-white p-5 shadow-sm">
       <h3 className="text-base font-semibold">Последние изменения</h3>
       {recent.length === 0 ? (
         <p className="mt-3 text-sm text-neutral-500">Изменений пока нет.</p>

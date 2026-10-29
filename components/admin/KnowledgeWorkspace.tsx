@@ -105,7 +105,7 @@ export function KnowledgeWorkspace({
             type="button"
             onClick={onExportQuestionReport}
             disabled={exportingQuestionReport}
-            className="inline-flex h-10 items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 text-sm font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-10 items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 text-sm font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50 transition"
           >
             <Download className="h-4 w-4" aria-hidden="true" />
             {exportingQuestionReport ? "Собираю отчёт..." : "Отчёт по вопросам"}
@@ -114,7 +114,7 @@ export function KnowledgeWorkspace({
             type="button"
             onClick={onExportFaq}
             disabled={counts.verified === 0}
-            className="inline-flex h-10 items-center gap-2 rounded-xl border border-neutral-300 bg-white px-4 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-10 items-center gap-2 rounded-lg border border-neutral-300 bg-white px-4 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50 transition"
           >
             <Download className="h-4 w-4" aria-hidden="true" />
             Скачать FAQ
@@ -122,7 +122,7 @@ export function KnowledgeWorkspace({
           <button
             type="button"
             onClick={onAdd}
-            className="h-10 rounded-xl bg-blue-600 px-4 text-sm font-semibold text-on-accent hover:bg-blue-700"
+            className="h-10 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-on-accent hover:bg-blue-700 inline-flex items-center justify-center gap-1.5 transition"
           >
             + Добавить материал
           </button>
@@ -150,7 +150,7 @@ export function KnowledgeWorkspace({
       }
     >
       <div
-        className={`grid gap-0 overflow-hidden rounded-2xl border border-neutral-200/80 bg-white ${
+        className={`grid gap-0 overflow-hidden rounded-xl border border-neutral-200/80 bg-white shadow-sm ${
           inspectorOpen ? "xl:grid-cols-[minmax(0,1fr)_380px]" : ""
         }`}
       >

@@ -352,6 +352,16 @@ html[data-theme="dark"] .admin-shell {
   background: var(--background);
 }
 
+/* Keyboard focus and disabled state for every admin control. */
+.admin-shell :is(button, a, summary):focus-visible {
+  outline: 2px solid var(--blue-600);
+  outline-offset: 2px;
+}
+
+.admin-shell button:disabled {
+  cursor: not-allowed;
+}
+
 .soft-enter {
   animation: soft-enter 220ms ease-out both;
 }

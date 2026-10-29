@@ -19,7 +19,7 @@ export function ReviewQueue({
     .slice(0, 5);
 
   return (
-    <section className="rounded-2xl border border-neutral-200/80 bg-white p-5">
+    <section className="rounded-xl border border-neutral-200/80 bg-white p-5 shadow-sm">
       <div className="mb-4 flex items-center justify-between gap-3">
         <h3 className="text-base font-semibold">Очередь на проверку</h3>
         <button

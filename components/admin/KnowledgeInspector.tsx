@@ -184,7 +184,7 @@ export function KnowledgeInspector({
             <button
               type="button"
               onClick={onEdit}
-              className="h-10 rounded-lg bg-blue-600 text-sm font-semibold text-on-accent hover:bg-blue-700"
+              className="h-10 rounded-lg bg-blue-600 text-sm font-semibold text-on-accent hover:bg-blue-700 inline-flex items-center justify-center gap-1.5 transition"
             >
               Редактировать
             </button>
@@ -193,7 +193,7 @@ export function KnowledgeInspector({
                 type="button"
                 onClick={onSendToReview}
                 disabled={saving}
-                className="h-10 rounded-lg border border-neutral-200 text-sm font-semibold hover:bg-neutral-50 disabled:opacity-60"
+                className="h-10 rounded-lg border border-neutral-300 text-sm font-medium hover:bg-neutral-50 disabled:opacity-60 inline-flex items-center justify-center gap-1.5 transition"
               >
                 Отправить на проверку
               </button>
@@ -203,7 +203,7 @@ export function KnowledgeInspector({
                 type="button"
                 onClick={onConfirm}
                 disabled={saving}
-                className="h-10 rounded-lg border border-emerald-200 text-sm font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
+                className="h-10 rounded-lg border border-emerald-200 text-sm font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-60 inline-flex items-center justify-center gap-1.5 transition"
               >
                 {saving ? "Сохраняю..." : "Подтвердить"}
               </button>
@@ -213,7 +213,7 @@ export function KnowledgeInspector({
                 type="button"
                 onClick={onArchive}
                 disabled={saving}
-                className="h-10 rounded-lg border border-neutral-200 text-sm font-semibold text-neutral-600 hover:bg-neutral-50 disabled:opacity-60"
+                className="h-10 rounded-lg border border-neutral-300 text-sm font-medium text-neutral-600 hover:bg-neutral-50 disabled:opacity-60 inline-flex items-center justify-center gap-1.5 transition"
               >
                 В архив
               </button>
@@ -222,7 +222,7 @@ export function KnowledgeInspector({
               type="button"
               onClick={onDelete}
               disabled={saving}
-              className="h-10 rounded-lg border border-red-200 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+              className="h-10 rounded-lg border border-red-200 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60 inline-flex items-center justify-center gap-1.5 transition"
             >
               Удалить
             </button>
@@ -232,7 +232,7 @@ export function KnowledgeInspector({
             type="button"
             onClick={onSave}
             disabled={saving}
-            className="h-11 rounded-lg bg-blue-600 text-sm font-semibold text-on-accent hover:bg-blue-700 disabled:bg-neutral-300"
+            className="h-10 rounded-lg bg-blue-600 text-sm font-semibold text-on-accent hover:bg-blue-700 disabled:bg-neutral-300 inline-flex items-center justify-center gap-1.5 transition"
           >
             {saving ? "Сохраняю..." : form.id ? "Сохранить" : "Добавить материал"}
           </button>
