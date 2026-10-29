@@ -2,6 +2,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { getSupabaseProjectUrl } from "@/lib/supabaseEnv";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { getHistoryDateRange } from "@/lib/historyRange";
 
 type ChatConversation = {
   id: string;
@@ -38,26 +39,6 @@ const MAX_HISTORY_CONVERSATIONS = 500;
 // PostgREST returns at most 1000 rows per request.
 const MESSAGES_PAGE_SIZE = 1000;
 const MESSAGE_ID_BATCH = 100;
-// Residents and staff are in Astana (UTC+5); a "day" in the filter is theirs.
-const ASTANA_OFFSET = "+05:00";
-
-function parseDay(value: string | null) {
-  return value && /^d{4}-d{2}-d{2}$/.test(value) ? value : null;
-}
-
-// `to` is inclusive: "2026-10-31" covers the whole of 31 October.
-function getDateRange(url: URL) {
-  const from = parseDay(url.searchParams.get("from"));
-  const to = parseDay(url.searchParams.get("to"));
-  const end = to ? new Date(`${to}T00:00:00${ASTANA_OFFSET}`) : null;
-
-  end?.setUTCDate(end.getUTCDate() + 1);
-
-  return {
-    from: from ? new Date(`${from}T00:00:00${ASTANA_OFFSET}`).toISOString() : null,
-    toExclusive: end ? end.toISOString() : null,
-  };
-}
 
 function inRange<T extends { gte: (column: string, value: string) => T; lt: (column: string, value: string) => T }>(
   query: T,
@@ -150,7 +131,7 @@ export async function GET(req: Request) {
   );
   const requestedOffset = Number(url.searchParams.get("offset") ?? 0);
   const offset = Number.isFinite(requestedOffset) ? Math.max(Math.floor(requestedOffset), 0) : 0;
-  const range = getDateRange(url);
+  const range = getHistoryDateRange(url.searchParams);
   const hasRange = Boolean(range.from || range.toExclusive);
   const admin = getAdminClient();
 

@@ -5132,7 +5132,9 @@ export default function AdminPage() {
             <section className="mb-5 grid gap-3 md:grid-cols-4">
               <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
                 <div className="text-sm text-neutral-500">
-                  Диалогов · {historyPeriod.label.toLowerCase()}
+                  {historyPeriod.from
+                    ? `Диалогов · ${historyPeriod.label.toLowerCase()}`
+                    : "Диалогов всего"}
                 </div>
                 <div className="mt-2 text-3xl font-semibold">
                   {resolvedHistoryStats.totalConversations}
@@ -5243,27 +5245,27 @@ export default function AdminPage() {
             </section>
 
             <section className="rounded-xl border border-neutral-200 bg-white shadow-sm">
-              <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 md:flex-row md:items-center md:justify-between">
-                <div>
+              <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="min-w-0">
                   <h2 className="font-semibold">История вопросов</h2>
                   <p className="mt-1 text-sm text-neutral-500">
                     Диалоги, оценки и источники ответов по категориям.
                   </p>
+                  <div className="mt-1 text-xs text-neutral-500">
+                    Показано {resolvedHistoryStats.loadedConversations} из{" "}
+                    {resolvedHistoryStats.totalConversations} диалогов
+                    {resolvedHistoryStats.totalUserMessages !== null
+                      ? ` · вопросов: ${resolvedHistoryStats.totalUserMessages}`
+                      : ""}
+                    {resolvedHistoryStats.totalAssistantMessages !== null
+                      ? ` · ответов: ${resolvedHistoryStats.totalAssistantMessages}`
+                      : ""}
+                    {resolvedHistoryStats.totalMessages !== null
+                      ? ` · сообщений: ${resolvedHistoryStats.totalMessages}`
+                      : ""}
+                  </div>
                 </div>
-                <div className="text-xs text-neutral-500 md:text-right">
-                  Показано {resolvedHistoryStats.loadedConversations} из{" "}
-                  {resolvedHistoryStats.totalConversations} диалогов
-                  {resolvedHistoryStats.totalUserMessages !== null
-                    ? ` · вопросов: ${resolvedHistoryStats.totalUserMessages}`
-                    : ""}
-                  {resolvedHistoryStats.totalAssistantMessages !== null
-                    ? ` · ответов: ${resolvedHistoryStats.totalAssistantMessages}`
-                    : ""}
-                  {resolvedHistoryStats.totalMessages !== null
-                    ? ` · сообщений: ${resolvedHistoryStats.totalMessages}`
-                    : ""}
-                </div>
-                <div className="flex gap-2">
+                <div className="flex shrink-0 gap-2">
                   <input
                     value={historyQuery}
                     onChange={(e) => setHistoryQuery(e.target.value)}
